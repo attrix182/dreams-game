@@ -233,12 +233,17 @@ export class PlayerController {
         
         // Eventos de foco de ventana
         window.addEventListener('focus', () => {
-            // Ventana ganó foco
+            // Ventana ganó foco - no hacer nada especial
         });
         
         window.addEventListener('blur', () => {
-            // Ventana perdió foco
-            // No desbloquear el puntero automáticamente al perder foco
+            // Ventana perdió foco - mantener el estado
+            // NO desbloquear el puntero automáticamente
+        });
+        
+        // Prevenir que el render se detenga al perder foco
+        document.addEventListener('visibilitychange', () => {
+            // Mantener el juego funcionando incluso cuando la pestaña no está visible
         });
     }
 

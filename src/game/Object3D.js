@@ -15,12 +15,15 @@ export class Object3D {
     }
 
     generateId() {
+        // Si el objeto viene del servidor, usar su ID
+        if (this.data.id) {
+            return this.data.id;
+        }
+        // Si no, generar un ID local
         return 'obj_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     }
 
     async create() {
-        console.log('🎨 Creando objeto:', this.data);
-        
         try {
             // Determinar el tipo de objeto y crear el mesh apropiado
             this.mesh = await this.createMesh();
@@ -37,10 +40,8 @@ export class Object3D {
             // Crear sistema de física
             this.createPhysics();
             
-            console.log('✅ Objeto creado:', this.data.name);
-            
         } catch (error) {
-            console.error('❌ Error al crear objeto:', error);
+            // Error silencioso
             throw error;
         }
     }
@@ -559,8 +560,6 @@ export class Object3D {
         
         // Agregar outline
         this.addOutline();
-        
-        console.log('✅ Objeto seleccionado:', this.data.name);
     }
 
     deselect() {
@@ -583,8 +582,6 @@ export class Object3D {
         
         // Remover outline
         this.removeOutline();
-        
-        console.log('❌ Objeto deseleccionado:', this.data.name);
     }
 
     addOutline() {
@@ -699,7 +696,5 @@ export class Object3D {
         
         // Asegurar que el objeto esté en la altura correcta
         this.adjustHeightForGround();
-        
-        console.log('⚡ Física creada para:', this.data.name);
     }
 } 

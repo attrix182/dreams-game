@@ -154,8 +154,6 @@
     <div id="gameContainer">
         <canvas id="canvas"></canvas>
         
-
-
         <div id="instructions">
             <h3>🎯 Controles</h3>
             <div id="firstPersonControls" style="display: none;">
@@ -205,20 +203,8 @@
             }
         }
         
-        // Escuchar cambios de modo de cámara
-        document.addEventListener('keydown', (event) => {
-            if (event.key === 'c' || event.key === 'C') {
-                setTimeout(() => {
-                    // Asumir que el modo cambió (se maneja en el juego)
-                    // Esto es una aproximación, el estado real se maneja en Game3D
-                    const isFirstPerson = document.getElementById('playerHUD') !== null;
-                    updateInstructions(isFirstPerson);
-                }, 100);
-            }
-        });
-        
-        // Inicializar en modo primera persona
-        updateInstructions(true);
+        // Exponer función globalmente
+        window.updateInstructions = updateInstructions;
     </script>
 </body>
 </html> 

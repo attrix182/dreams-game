@@ -60,6 +60,8 @@ export class GameServer {
     
     // Gestión de jugadores
     addPlayer(socket) {
+        console.log('👤 Nuevo jugador conectado:', socket.id);
+        
         // Verificar límite de jugadores
         if (this.players.size >= this.worldConfig.maxPlayers) {
             socket.emit('error', { message: 'Servidor lleno' });
@@ -81,6 +83,8 @@ export class GameServer {
         this.players.set(socket.id, player);
         this.stats.totalConnections++;
         this.stats.currentConnections = this.players.size;
+        
+        console.log('✅ Jugador agregado:', player.name, 'Total:', this.players.size);
         
         // Enviar estado inicial al jugador
         const gameData = {
@@ -115,15 +119,13 @@ export class GameServer {
             player.position = data;
             player.lastUpdate = Date.now();
             
+            console.log('📍 Jugador movido:', player.name, 'posición:', data);
             
             // Broadcast a otros jugadores (excluyendo al emisor)
             socket.broadcast.emit('player:moved', {
                 id: socket.id,
                 position: player.position
             });
-            
-        } else {
-            console.log('⚠️ Jugador no encontrado para actualizar posición:', socket.id);
         }
     }
     
@@ -138,10 +140,6 @@ export class GameServer {
                 id: socket.id,
                 rotation: player.rotation
             });
-            
-    
-        } else {
-            console.log('⚠️ Jugador no encontrado para actualizar rotación:', socket.id);
         }
     }
     
@@ -173,7 +171,6 @@ export class GameServer {
         
         // Broadcast a todos los jugadores (incluyendo al creador)
         this.io.emit('object:created', object);
-        
     }
     
     moveObject(socket, data) {
@@ -256,11 +253,6 @@ export class GameServer {
         if (Date.now() % 15000 < 100) {
             this.broadcastWorldState();
         }
-        
-        // Log de estadísticas cada 2 minutos
-        if (Date.now() % 120000 < 100) {
-            console.log(`📊 Estadísticas: ${this.players.size} jugadores, ${this.objects.size} objetos`);
-        }
     }
     
     updatePhysics() {
@@ -287,7 +279,6 @@ export class GameServer {
         
         for (const [playerId, player] of this.players) {
             if (now - player.lastUpdate > timeout) {
-                console.log(`⏰ Timeout de jugador: ${player.name} (${Math.round((now - player.lastUpdate) / 1000)}s)`);
                 this.removePlayer(playerId);
             }
         }

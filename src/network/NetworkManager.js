@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { config } from '../config.js';
 
 export class NetworkManager {
     constructor() {
@@ -9,8 +10,8 @@ export class NetworkManager {
         this.objects = new Map();
         this.callbacks = new Map();
         
-        // Configuración simple
-        this.serverUrl = 'http://localhost:3001';
+        // Usar configuración
+        this.serverUrl = config.serverUrl;
     }
     
     connect() {
@@ -78,6 +79,7 @@ export class NetworkManager {
         
         // Jugadores
         this.socket.on('player:joined', (player) => {
+            console.log('📥 Jugador se unió (NetworkManager):', player.name, 'ID:', player.id);
             this.players.set(player.id, player);
             
             if (this.callbacks.has('onPlayerJoined')) {
@@ -86,6 +88,7 @@ export class NetworkManager {
         });
         
         this.socket.on('player:left', (data) => {
+            console.log('📥 Jugador se fue (NetworkManager):', data.name, 'ID:', data.id);
             this.players.delete(data.id);
             
             if (this.callbacks.has('onPlayerLeft')) {
@@ -94,6 +97,7 @@ export class NetworkManager {
         });
         
         this.socket.on('player:moved', (data) => {
+            console.log('📥 Jugador movido (NetworkManager):', data.id, 'posición:', data.position);
             const player = this.players.get(data.id);
             if (player) {
                 player.position = data.position;
@@ -155,12 +159,14 @@ export class NetworkManager {
     // Envío de datos
     sendPlayerMove(position) {
         if (this.isConnected && this.socket) {
+            console.log('📤 Enviando movimiento:', position);
             this.socket.emit('player:move', position);
         }
     }
     
     sendPlayerRotate(rotation) {
         if (this.isConnected && this.socket) {
+            console.log('📤 Enviando rotación:', rotation);
             this.socket.emit('player:rotate', rotation);
         }
     }

@@ -3,12 +3,17 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { GameServer } from './GameServer.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
-        origin: "http://localhost:3000",
+        origin: "*", // Permitir cualquier origen en producción
         methods: ["GET", "POST"]
     }
 });
@@ -17,8 +22,13 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
-// Servir archivos estáticos
-app.use(express.static('../dist'));
+// Servir archivos estáticos desde la carpeta dist
+app.use(express.static(path.join(__dirname, '../dist')));
+
+// Ruta para servir index.html en cualquier ruta (SPA)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
 
 // Crear instancia del servidor de juego
 const gameServer = new GameServer(io);
@@ -59,14 +69,11 @@ app.get('/info', (req, res) => {
 
 // Manejo de conexiones WebSocket
 io.on('connection', (socket) => {
-    console.log('🔌 Nuevo jugador conectado:', socket.id);
-    
     // Registrar jugador
     gameServer.addPlayer(socket);
     
     // Manejar desconexión
     socket.on('disconnect', () => {
-        console.log('🔌 Jugador desconectado:', socket.id);
         gameServer.removePlayer(socket.id);
     });
     
@@ -101,5 +108,6 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
     console.log(`🚀 Servidor multijugador iniciado en puerto ${PORT}`);
     console.log(`📊 Panel de estado: http://localhost:${PORT}/api/status`);
-    console.log(`🎮 Cliente: http://localhost:3000`);
+    console.log(`🎮 Cliente: http://localhost:${PORT}`);
+    console.log(`🌐 Modo: ${process.env.NODE_ENV || 'development'}`);
 }); 
