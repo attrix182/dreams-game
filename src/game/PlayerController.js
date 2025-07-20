@@ -68,8 +68,6 @@ export class PlayerController {
     }
 
     init() {
-        console.log('🎮 Inicializando controlador del jugador...');
-        
         // Configurar cámara inicial
         this.camera.position.copy(this.position);
         
@@ -85,7 +83,6 @@ export class PlayerController {
         this.createHUD();
         
         this.isInitialized = true;
-        console.log('✅ Controlador del jugador inicializado');
     }
 
     setupEventListeners() {
@@ -130,19 +127,16 @@ export class PlayerController {
             if (event.code === 'BracketLeft') {
                 event.preventDefault();
                 this.mouseSensitivity = Math.max(0.001, this.mouseSensitivity - 0.001);
-                console.log('🔧 Sensibilidad reducida:', this.mouseSensitivity);
             }
             if (event.code === 'BracketRight') {
                 event.preventDefault();
                 this.mouseSensitivity = Math.min(0.05, this.mouseSensitivity + 0.001);
-                console.log('🔧 Sensibilidad aumentada:', this.mouseSensitivity);
             }
             
             // Resetear rotación de cámara con R
             if (event.code === 'KeyR') {
                 event.preventDefault();
                 this.resetCameraRotation();
-                console.log('🔄 Rotación de cámara reseteada');
             }
             
             // Debug con F1
@@ -154,14 +148,12 @@ export class PlayerController {
             // Forzar inicio de arrastre con F2 (para testing)
             if (event.code === 'F2') {
                 event.preventDefault();
-                console.log('🧪 Forzando inicio de arrastre...');
                 this.startObjectDrag();
             }
             
             // Corregir altura de todos los objetos con F3
             if (event.code === 'F3') {
                 event.preventDefault();
-                console.log('🔧 Corrigiendo altura de todos los objetos...');
                 // Llamar al método del Game3D si está disponible
                 if (window.game3D && window.game3D.fixAllObjectHeights) {
                     window.game3D.fixAllObjectHeights();
@@ -171,12 +163,10 @@ export class PlayerController {
             // Forzar posición de cámara para debug con F4
             if (event.code === 'F4') {
                 event.preventDefault();
-                console.log('🔧 Forzando posición de cámara para debug...');
                 this.position.set(0, 2, 20); // Posición más alta y atrás
                 this.cameraRotation.x = -0.1; // Mirar ligeramente hacia abajo
                 this.cameraRotation.y = 0; // Mirar hacia adelante
                 this.updateCameraRotation();
-                console.log('✅ Posición forzada:', this.position);
             }
         });
 
@@ -243,11 +233,11 @@ export class PlayerController {
         
         // Eventos de foco de ventana
         window.addEventListener('focus', () => {
-            console.log('🪟 Ventana ganó foco');
+            // Ventana ganó foco
         });
         
         window.addEventListener('blur', () => {
-            console.log('🪟 Ventana perdió foco');
+            // Ventana perdió foco
             // No desbloquear el puntero automáticamente al perder foco
         });
     }
@@ -323,8 +313,6 @@ export class PlayerController {
         if (object.physics) {
             object.physics.enabled = false;
         }
-        
-        console.log('🎯 Iniciando manipulación:', object.data?.name || 'Objeto');
     }
 
     updateObjectDrag(event) {
@@ -390,38 +378,12 @@ export class PlayerController {
             
             this.objectManipulation.isDragging = false;
             this.objectManipulation.draggedObject = null;
-            
-            console.log('✅ Finalizando manipulación de objeto');
         }
     }
 
     // Método para debuggear el estado del sistema
     debugState() {
-        console.log('🔍 Estado del PlayerController:');
-        console.log('- Posición del jugador:', this.position);
-        console.log('- Posición de la cámara:', this.camera.position);
-        console.log('- Rotación de la cámara:', this.cameraRotation);
-        console.log('- Objetos interactuables:', this.interactableObjects.length);
-        console.log('- Objeto actual:', this.currentInteractable ? this.currentInteractable.data?.name : 'Ninguno');
-        console.log('- Manipulación activa:', this.objectManipulation.isDragging);
-        console.log('- Modal abierto:', this.isModalOpen);
-        console.log('- Puntero bloqueado:', this.isPointerLocked);
-        console.log('- Objeto arrastrado:', this.objectManipulation.draggedObject ? this.objectManipulation.draggedObject.data?.name : 'Ninguno');
-        
-        if (this.currentInteractable) {
-            console.log('- Detalles del objeto actual:');
-            console.log('  - Tipo:', typeof this.currentInteractable);
-            console.log('  - Tiene mesh:', !!this.currentInteractable.mesh);
-            console.log('  - Tiene position:', !!this.currentInteractable.mesh?.position);
-            console.log('  - Tiene scale:', !!this.currentInteractable.mesh?.scale);
-            console.log('  - Data:', this.currentInteractable.data);
-            console.log('  - Posición actual:', this.currentInteractable.mesh?.position);
-        }
-        
-        console.log('- Estado de manipulación:');
-        console.log('  - isDragging:', this.objectManipulation.isDragging);
-        console.log('  - draggedObject:', this.objectManipulation.draggedObject);
-        console.log('  - originalPosition:', this.objectManipulation.originalPosition);
+        // Método de debug sin logs para evitar lag
     }
 
     update(deltaTime) {
@@ -547,7 +509,6 @@ export class PlayerController {
                 if (this.onObjectHover) {
                     this.onObjectHover(gameObject);
                 }
-                console.log('🎯 Objeto detectado para interacción:', gameObject.data?.name || 'Sin nombre');
             }
         } else {
             if (this.currentInteractable) {
@@ -681,9 +642,6 @@ export class PlayerController {
     addInteractableObject(object) {
         if (object && object.mesh) {
             this.interactableObjects.push(object.mesh);
-            console.log('✅ Objeto agregado para interacción:', object.data?.name || 'Sin nombre');
-        } else {
-            console.warn('⚠️ Objeto inválido para interacción');
         }
     }
 
@@ -692,7 +650,6 @@ export class PlayerController {
             const index = this.interactableObjects.indexOf(object.mesh);
             if (index > -1) {
                 this.interactableObjects.splice(index, 1);
-                console.log('❌ Objeto removido de interacción:', object.data?.name || 'Sin nombre');
             }
         }
     }
@@ -743,7 +700,6 @@ export class PlayerController {
     }
 
     die() {
-        console.log('💀 Jugador ha muerto');
         // Implementar lógica de muerte
         this.health = 100;
         this.energy = 100;

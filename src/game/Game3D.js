@@ -80,12 +80,10 @@ export class Game3D {
     
     async init() {
         try {
-            console.log('🎮 Iniciando Game3D...');
             
             // Crear escena
             this.scene = new THREE.Scene();
             this.scene.background = new THREE.Color(0x87CEEB); // Cielo azul claro
-            console.log('✅ Escena creada');
             
             // Crear cámara
             this.camera = new THREE.PerspectiveCamera(
@@ -94,7 +92,6 @@ export class Game3D {
                 this.config.near,
                 this.config.far
             );
-            console.log('✅ Cámara creada');
             
             // Crear renderer
             this.renderer = new THREE.WebGLRenderer({ 
@@ -105,20 +102,16 @@ export class Game3D {
             this.renderer.shadowMap.enabled = true;
             this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             // No agregar al DOM porque ya existe
-            console.log('✅ Renderer creado y agregado al DOM');
             
             // Configurar iluminación
             this.setupLighting();
-            console.log('✅ Iluminación configurada');
             
             // Crear suelo
             this.createGround();
-            console.log('✅ Suelo creado');
             
             // Crear controlador del jugador
             this.playerController = new PlayerController(this.camera, this.scene);
             this.playerController.init();
-            console.log('✅ Controlador del jugador inicializado');
             
             // Configurar callbacks del controlador
             this.playerController.setFindGameObjectCallback((threeObject) => this.findGameObject(threeObject));
@@ -131,17 +124,12 @@ export class Game3D {
             
             // Configurar eventos de ventana
             this.setupWindowEvents();
-            console.log('✅ Eventos de ventana configurados');
             
             // Configurar multijugador
             this.setupMultiplayer();
-            console.log('✅ Multijugador configurado');
             
             // Iniciar loop de renderizado
             this.animate();
-            console.log('✅ Loop de renderizado iniciado');
-            
-            console.log('🎮 Juego 3D inicializado correctamente');
             
         } catch (error) {
             console.error('❌ Error en init:', error);
@@ -187,7 +175,6 @@ export class Game3D {
         ground.receiveShadow = true;
         this.scene.add(ground);
         
-        console.log('🌍 Suelo creado en Y=0');
     }
     
     setupPlayerControllerCallbacks() {
@@ -203,7 +190,6 @@ export class Game3D {
         
         // Callback para interacción
         this.playerController.onInteract = (object) => {
-            console.log('🎯 Interactuando con:', object.data.name);
         };
     }
     
@@ -239,10 +225,8 @@ export class Game3D {
             this.updateMultiplayerIndicator();
         });
         
-        // Inicialización del juego - Cargar estado inicial
+        // Inicialización del juego
         this.networkManager.on('onGameInit', (data) => {
-            console.log('🎮 Inicializando juego multijugador:', data.players.length, 'jugadores,', data.objects.length, 'objetos');
-            
             // Limpiar jugadores remotos existentes
             this.remotePlayers.forEach(player => player.remove());
             this.remotePlayers.clear();
@@ -262,33 +246,27 @@ export class Game3D {
         
         // Nuevos jugadores
         this.networkManager.on('onPlayerJoined', (player) => {
-            console.log('👤 Jugador se unió:', player.name);
             this.addRemotePlayer(player);
             this.showChatMessage(`👤 ${player.name} se ha unido al juego`);
         });
         
         // Jugadores que se van
         this.networkManager.on('onPlayerLeft', (data) => {
-            console.log('👤 Jugador se fue:', data.name);
             this.removeRemotePlayer(data.id);
             this.showChatMessage(`👤 ${data.name} se ha desconectado`);
         });
         
         // Movimiento de jugadores
         this.networkManager.on('onPlayerMoved', (data) => {
-            console.log('🎮 Evento onPlayerMoved recibido:', data);
-            console.log('🎮 Jugadores remotos actuales:', Array.from(this.remotePlayers.keys()));
             this.updateRemotePlayerPosition(data.id, data.position);
         });
         
         this.networkManager.on('onPlayerRotated', (data) => {
-            console.log('🎮 Evento onPlayerRotated recibido:', data);
             this.updateRemotePlayerRotation(data.id, data.rotation);
         });
         
         // Objetos
         this.networkManager.on('onObjectCreated', (object) => {
-            console.log('🎨 Objeto creado:', object.name);
             this.createObjectFromNetwork(object);
             this.showChatMessage(`🎨 ${object.name} fue creado`);
         });
@@ -305,50 +283,19 @@ export class Game3D {
         this.networkManager.on('onChatMessage', (message) => {
             this.showChatMessage(`${message.playerName}: ${message.message}`);
         });
-        
-        // Estado del mundo - Solo para sincronización ocasional
-        this.networkManager.on('onWorldState', (state) => {
-            console.log('🌍 Sincronización de estado:', state.players.length, 'jugadores,', state.objects.length, 'objetos');
-            
-            // Solo agregar jugadores/objetos que no existen
-            state.players.forEach(playerData => {
-                if (playerData.id !== this.networkManager.playerId && !this.remotePlayers.has(playerData.id)) {
-                    this.addRemotePlayer(playerData);
-                }
-            });
-            
-            state.objects.forEach(objData => {
-                if (!this.objects.has(objData.id)) {
-                    this.createObjectFromNetwork(objData);
-                }
-            });
-        });
     }
     
     addRemotePlayer(playerData) {
-        console.log('🎮 Intentando agregar jugador remoto:', playerData.id, playerData.name);
-        console.log('🎮 Jugadores remotos antes:', Array.from(this.remotePlayers.keys()));
-        
-        // Verificar límite de jugadores
-        if (this.remotePlayers.size >= this.config.maxPlayers) {
-            console.log('⚠️ Límite de jugadores remotos alcanzado');
-            return;
-        }
-        
         // Verificar que no exista ya
         if (this.remotePlayers.has(playerData.id)) {
-            console.log('⚠️ Jugador remoto ya existe:', playerData.name);
             return;
         }
         
         try {
             const remotePlayer = new RemotePlayer(playerData, this.scene);
-            remotePlayer.lastUpdate = Date.now(); // Agregar timestamp
             this.remotePlayers.set(playerData.id, remotePlayer);
-            console.log('✅ Jugador remoto agregado exitosamente:', playerData.name);
-            console.log('🎮 Jugadores remotos después:', Array.from(this.remotePlayers.keys()));
         } catch (error) {
-            console.error('❌ Error al agregar jugador remoto:', error);
+            // Error silencioso
         }
     }
     
@@ -358,9 +305,8 @@ export class Game3D {
             try {
                 remotePlayer.remove();
                 this.remotePlayers.delete(playerId);
-                console.log('✅ Jugador remoto removido:', playerId);
             } catch (error) {
-                console.error('❌ Error al remover jugador remoto:', error);
+                // Error silencioso
             }
         }
     }
@@ -370,12 +316,9 @@ export class Game3D {
         if (remotePlayer) {
             try {
                 remotePlayer.updatePosition(position);
-                console.log('📍 Actualizando posición de jugador:', playerId, position);
             } catch (error) {
-                console.error('❌ Error al actualizar posición:', error);
+                // Error silencioso
             }
-        } else {
-            console.log('⚠️ Jugador remoto no encontrado para actualizar posición:', playerId);
         }
     }
     
@@ -384,12 +327,9 @@ export class Game3D {
         if (remotePlayer) {
             try {
                 remotePlayer.updateRotation(rotation);
-                console.log('🔄 Actualizando rotación de jugador:', playerId, rotation);
             } catch (error) {
-                console.error('❌ Error al actualizar rotación:', error);
+                // Error silencioso
             }
-        } else {
-            console.log('⚠️ Jugador remoto no encontrado para actualizar rotación:', playerId);
         }
     }
     
@@ -432,7 +372,7 @@ export class Game3D {
             // Agregar para interacción
             this.playerController.addInteractableObject(object);
         } catch (error) {
-            console.error('❌ Error al crear objeto desde red:', error);
+            // Error silencioso
         }
     }
     
@@ -479,28 +419,17 @@ export class Game3D {
             if (event.code === 'F7') {
                 this.debugMultiplayerConnection();
             }
+            
+            // Comando para crear jugador de prueba
+            if (event.code === 'F8') {
+                this.createTestPlayer();
+            }
         });
     }
     
     debugScene() {
-        console.log('🔍 Debug de la escena:');
-        console.log('- Escena:', this.scene);
-        console.log('- Cámara:', this.camera);
-        console.log('- Renderer:', this.renderer);
-        console.log('- Posición de cámara:', this.camera.position);
-        console.log('- Rotación de cámara:', this.camera.rotation);
-        console.log('- Objetos en escena:', this.scene.children.length);
-        console.log('- Objetos en escena:', this.scene.children);
-        
-        // Verificar que el renderer esté configurado
-        if (this.renderer && this.renderer.domElement) {
-            console.log('- Canvas del renderer:', this.renderer.domElement);
-            console.log('- Tamaño del canvas:', this.renderer.domElement.width, 'x', this.renderer.domElement.height);
-        }
-        
         // Forzar un renderizado
         this.renderer.render(this.scene, this.camera);
-        console.log('✅ Renderizado forzado');
     }
     
     showQuickGenerateMenu() {
@@ -769,23 +698,21 @@ export class Game3D {
                 object.adjustHeightForGround();
             }
         }
-        console.log('🔧 Altura de todos los objetos corregida');
     }
     
     animate() {
         requestAnimationFrame(() => this.animate());
         
-        const deltaTime = 0.016; // Aproximadamente 60 FPS
-        const now = Date.now();
+        const deltaTime = 0.016;
         
-        // Actualizar controlador del jugador (siempre, independientemente del foco)
+        // Actualizar controlador del jugador
         if (this.playerController) {
             this.playerController.update(deltaTime);
         }
         
-        // Enviar actualización al servidor cada 100ms (10 veces por segundo)
-        // Esto debe funcionar incluso cuando la ventana no tiene foco
+        // Enviar actualización al servidor cada 100ms
         if (this.isMultiplayer && this.networkManager && this.networkManager.isConnected) {
+            const now = Date.now();
             if (!this.lastPositionUpdate || now - this.lastPositionUpdate > 100) {
                 const position = this.playerController.getPosition();
                 const rotation = this.playerController.getCameraRotation();
@@ -804,7 +731,7 @@ export class Game3D {
             }
         }
         
-        // Actualizar jugadores remotos (siempre, independientemente del foco)
+        // Actualizar jugadores remotos
         for (const [id, remotePlayer] of this.remotePlayers) {
             if (remotePlayer.update) {
                 remotePlayer.update(deltaTime);
@@ -814,7 +741,7 @@ export class Game3D {
         // Actualizar indicador de multijugador
         this.updateMultiplayerIndicator();
         
-        // Renderizar escena (siempre, independientemente del foco)
+        // Renderizar escena
         this.renderer.render(this.scene, this.camera);
     }
     
@@ -954,48 +881,27 @@ export class Game3D {
     }
 
     debugPlayers() {
-        console.log('👥 Jugadores conectados:');
-        console.log('- Jugadores remotos:', this.remotePlayers.size);
-        
-        for (const [id, player] of this.remotePlayers) {
-            console.log(`  - ${player.name} (${id})`);
-            console.log(`    Posición:`, player.position);
-            console.log(`    Salud: ${player.health}%`);
-        }
-        
-        if (this.networkManager) {
-            console.log('- Total de jugadores en red:', this.networkManager.getPlayerCount());
-            console.log('- Objetos en red:', this.networkManager.getObjectCount());
-        }
-        
-        console.log('- Estado multijugador:', this.isMultiplayer ? 'Activo' : 'Inactivo');
+        // Método de debug sin logs para evitar lag
     }
 
     debugMultiplayerConnection() {
-        console.log('🌐 Debug de conexión multijugador:');
-        console.log('- Estado multijugador:', this.isMultiplayer);
+        // Método de debug sin logs para evitar lag
+    }
+    
+    createTestPlayer() {
+        const testPlayerData = {
+            id: 'test_player_' + Date.now(),
+            name: 'Jugador de Prueba',
+            position: { x: 5, y: 1.8, z: 5 },
+            rotation: { x: 0, y: 0, z: 0 },
+            health: 100,
+            energy: 100
+        };
         
-        if (this.networkManager) {
-            console.log('- NetworkManager existe:', !!this.networkManager);
-            console.log('- Conectado:', this.networkManager.isConnected);
-            console.log('- ID del jugador:', this.networkManager.playerId);
-            console.log('- Jugadores en red:', this.networkManager.getPlayerCount());
-            console.log('- Objetos en red:', this.networkManager.getObjectCount());
-            
-            // Probar envío de datos
-            const testPosition = { x: 0, y: 1.8, z: 0 };
-            const testRotation = { x: 0, y: 0, z: 0 };
-            
-            console.log('📤 Enviando datos de prueba...');
-            this.networkManager.sendPlayerMove(testPosition);
-            this.networkManager.sendPlayerRotate(testRotation);
-        } else {
-            console.log('- NetworkManager no existe');
-        }
-        
-        console.log('- Jugadores remotos:', this.remotePlayers.size);
-        for (const [id, player] of this.remotePlayers) {
-            console.log(`  - ${player.name} (${id})`);
+        try {
+            this.addRemotePlayer(testPlayerData);
+        } catch (error) {
+            // Error silencioso
         }
     }
 

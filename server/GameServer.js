@@ -26,8 +26,6 @@ export class GameServer {
         
         // Iniciar loop del servidor optimizado
         this.startGameLoop();
-        
-        console.log('🎮 GameServer iniciado (modo optimizado)');
     }
     
     setupAutoCleanup() {
@@ -84,8 +82,6 @@ export class GameServer {
         this.stats.totalConnections++;
         this.stats.currentConnections = this.players.size;
         
-        console.log(`👤 Jugador conectado: ${player.name} (${this.players.size}/${this.worldConfig.maxPlayers})`);
-        
         // Enviar estado inicial al jugador
         const gameData = {
             playerId: socket.id,
@@ -110,7 +106,6 @@ export class GameServer {
             this.stats.currentConnections = this.players.size;
             
             this.io.emit('player:left', { id: playerId, name: player.name });
-            console.log(`👤 Jugador desconectado: ${player.name} (${this.players.size}/${this.worldConfig.maxPlayers})`);
         }
     }
     
