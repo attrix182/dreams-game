@@ -189,13 +189,22 @@ export class GameServer {
     }
     
     deleteObject(socket, data) {
-        const object = this.objects.get(data.objectId);
-        if (object) {
-            this.objects.delete(data.objectId);
-            
-            // Broadcast a todos los jugadores
-            this.io.emit('object:deleted', { id: data.objectId });
+        const objectId = data.id;
+        
+        if (this.objects.has(objectId)) {
+            this.objects.delete(objectId);
+            this.io.emit('object:deleted', { id: objectId });
         }
+    }
+    
+    clearAllObjects(socket) {
+        // Limpiar todos los objetos
+        this.objects.clear();
+        
+        // Notificar a todos los clientes
+        this.io.emit('objects:cleared');
+        
+        console.log(`🧹 Todos los objetos limpiados por ${socket.id}`);
     }
     
     // Chat

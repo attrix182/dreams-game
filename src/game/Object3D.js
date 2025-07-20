@@ -398,14 +398,7 @@ export class Object3D {
         // Ajustar la posición Y para que la base del objeto esté en el suelo
         this.mesh.position.y = groundHeight;
         
-        console.log('📏 Ajustando altura para:', this.data.name, {
-            objectType: this.mesh.constructor.name,
-            objectSize: objectSize,
-            objectHeight: objectHeight,
-            objectCenter: objectCenter,
-            groundHeight: groundHeight,
-            finalPosition: this.mesh.position.clone()
-        });
+
     }
 
     async addSpecialEffects() {

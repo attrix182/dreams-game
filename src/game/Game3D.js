@@ -121,6 +121,7 @@ export class Game3D {
             this.playerController.onGenerateObject = () => this.showQuickGenerateMenu();
             this.playerController.onPlayerMove = (position) => this.onPlayerMove(position);
             this.playerController.onPlayerRotate = (rotation) => this.onPlayerRotate(rotation);
+            this.playerController.onClearAllObjects = () => this.clearAllObjects();
             
             // Configurar eventos de ventana
             this.setupWindowEvents();
@@ -188,8 +189,19 @@ export class Game3D {
             this.showQuickGenerateMenu();
         };
         
+        // Callback para limpiar todos los objetos
+        this.playerController.onClearAllObjects = () => {
+            console.log('🔍 Callback onClearAllObjects ejecutado en Game3D');
+            this.clearAllObjects();
+        };
+        
         // Callback para interacción
         this.playerController.onInteract = (object) => {
+        };
+        
+        // Callback para movimiento de objetos
+        this.playerController.onObjectMove = (objectId, position, rotation) => {
+            this.onObjectMove(objectId, position, rotation);
         };
     }
     
@@ -272,16 +284,24 @@ export class Game3D {
         
         // Objetos
         this.networkManager.on('onObjectCreated', (object) => {
+            console.log('🎨 Evento onObjectCreated recibido:', object);
             this.createObjectFromNetwork(object);
             this.showChatMessage(`🎨 ${object.name} fue creado`);
         });
         
         this.networkManager.on('onObjectMoved', (data) => {
+            console.log('🎨 Evento onObjectMoved recibido:', data);
             this.moveObjectFromNetwork(data);
         });
         
         this.networkManager.on('onObjectDeleted', (data) => {
+            console.log('🎨 Evento onObjectDeleted recibido:', data);
             this.deleteObjectFromNetwork(data.id);
+        });
+        
+        this.networkManager.on('onObjectsCleared', () => {
+            console.log('🧹 Evento onObjectsCleared recibido');
+            this.clearAllObjectsFromNetwork();
         });
         
         // Chat
@@ -335,7 +355,7 @@ export class Game3D {
         const remotePlayer = this.remotePlayers.get(playerId);
         if (remotePlayer) {
             try {
-                console.log('🎮 Actualizando posición de', remotePlayer.name, 'a:', position);
+           
                 remotePlayer.updatePosition(position);
             } catch (error) {
                 console.error('❌ Error al actualizar posición de jugador:', error);
@@ -379,25 +399,85 @@ export class Game3D {
                 return; // Ya existe, no crear duplicado
             }
             
-            const object = new Object3D(objectData);
-            await object.create();
+            console.log('🎨 Creando objeto desde red:', objectData);
+            
+            // Crear datos del objeto basados en la información del servidor
+            const analysis = {
+                type: objectData.type || 'cube',
+                size: { 
+                    x: objectData.scale?.x || 1, 
+                    y: objectData.scale?.y || 1, 
+                    z: objectData.scale?.z || 1 
+                },
+                color: objectData.color || this.generateRandomColor(),
+                material: objectData.material || 'basic',
+                effects: []
+            };
+            
+            // Crear el mesh usando el mismo sistema que generateObject
+            const mesh = this.createMeshFromData(analysis);
             
             // Establecer posición si viene del servidor
             if (objectData.position) {
-                object.mesh.position.set(
+                mesh.position.set(
                     objectData.position.x,
                     objectData.position.y,
                     objectData.position.z
                 );
             }
             
-            this.objects.set(objectData.id, object);
-            this.scene.add(object.mesh);
+            // Establecer rotación si viene del servidor
+            if (objectData.rotation) {
+                mesh.rotation.set(
+                    objectData.rotation.x,
+                    objectData.rotation.y,
+                    objectData.rotation.z
+                );
+            }
+            
+            // Establecer escala si viene del servidor
+            if (objectData.scale) {
+                mesh.scale.set(
+                    objectData.scale.x,
+                    objectData.scale.y,
+                    objectData.scale.z
+                );
+            }
+            
+            // Agregar identificador
+            mesh.userData = {
+                isGameObject: true,
+                objectId: objectData.id,
+                name: objectData.name,
+                type: objectData.type || 'cube',
+                isFromNetwork: true,
+                createdAt: Date.now()
+            };
+            
+            // Agregar a la escena
+            this.scene.add(mesh);
+            
+            // Crear objeto simple para tracking
+            const simpleObject = {
+                id: objectData.id,
+                name: objectData.name,
+                mesh: mesh,
+                position: mesh.position,
+                createdAt: Date.now(),
+                getId: () => objectData.id,
+                getPosition: () => mesh.position,
+                setPosition: (x, y, z) => mesh.position.set(x, y, z)
+            };
+            
+            this.objects.set(objectData.id, simpleObject);
             
             // Agregar para interacción
-            this.playerController.addInteractableObject(object);
+            this.playerController.addInteractableObject(simpleObject);
+            
+            console.log('✅ Objeto creado desde red exitosamente:', objectData.name);
+            
         } catch (error) {
-            // Error silencioso
+            console.error('❌ Error al crear objeto desde red:', error);
         }
     }
     
@@ -416,6 +496,23 @@ export class Game3D {
             this.playerController.removeInteractableObject(object);
             this.objects.delete(objectId);
         }
+    }
+    
+    clearAllObjectsFromNetwork() {
+        console.log('🧹 Limpiando objetos desde red...');
+        
+        // Remover todos los objetos de la escena
+        for (const [id, object] of this.objects) {
+            if (object.mesh) {
+                this.scene.remove(object.mesh);
+                this.playerController.removeInteractableObject(object);
+            }
+        }
+        
+        // Limpiar el mapa de objetos
+        this.objects.clear();
+        
+        this.showChatMessage('🧹 Todos los objetos fueron limpiados');
     }
     
     syncWorldState(state) {
@@ -713,59 +810,505 @@ export class Game3D {
             const spawnPosition = playerPosition.clone().add(cameraDirection.multiplyScalar(3));
             spawnPosition.y = 1; // Elevar un poco del suelo
             
-            // Crear objeto local
-            const objectData = {
+            // Analizar la descripción para determinar el tipo de objeto
+            const objectData = this.analyzeAndCreateObject(description, spawnPosition);
+            
+            // Crear el objeto en la escena
+            const mesh = this.createMeshFromData(objectData);
+            mesh.position.copy(spawnPosition);
+            
+            // Agregar identificador
+            const objectId = 'obj_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            mesh.userData = {
+                isGameObject: true,
+                objectId: objectId,
                 name: description,
-                type: 'cube', // Por defecto
-                size: 1,
-                color: this.generateRandomColor(),
-                material: 'basic',
-                physics: true,
-                position: spawnPosition,
-                createdAt: Date.now() // Agregar timestamp
+                type: objectData.type,
+                createdAt: Date.now()
             };
             
-            const object = new Object3D(objectData);
-            await object.create();
+            // Agregar a la escena
+            this.scene.add(mesh);
             
-            // Establecer la posición calculada
-            object.mesh.position.copy(spawnPosition);
+            // Crear objeto simple para tracking
+            const simpleObject = {
+                id: objectId,
+                name: description,
+                mesh: mesh,
+                position: spawnPosition,
+                createdAt: Date.now(),
+                getId: () => objectId,
+                getPosition: () => mesh.position,
+                setPosition: (x, y, z) => mesh.position.set(x, y, z)
+            };
             
-            this.objects.set(object.getId(), object);
-            this.scene.add(object.mesh);
+            this.objects.set(objectId, simpleObject);
             
             // Agregar para interacción
-            this.playerController.addInteractableObject(object);
+            this.playerController.addInteractableObject(simpleObject);
             
             // Enviar al servidor si estamos en multijugador
-            if (this.isMultiplayer) {
+            if (this.isMultiplayer && this.networkManager && this.networkManager.isConnected) {
                 this.networkManager.sendObjectCreate({
                     type: objectData.type,
-                    name: objectData.name,
+                    name: description,
                     position: {
-                        x: object.mesh.position.x,
-                        y: object.mesh.position.y,
-                        z: object.mesh.position.z
+                        x: mesh.position.x,
+                        y: mesh.position.y,
+                        z: mesh.position.z
                     },
                     rotation: {
-                        x: object.mesh.rotation.x,
-                        y: object.mesh.rotation.y,
-                        z: object.mesh.rotation.z
+                        x: mesh.rotation.x,
+                        y: mesh.rotation.y,
+                        z: mesh.rotation.z
                     },
                     scale: {
-                        x: object.mesh.scale.x,
-                        y: object.mesh.scale.y,
-                        z: object.mesh.scale.z
+                        x: mesh.scale.x,
+                        y: mesh.scale.y,
+                        z: mesh.scale.z
                     },
                     material: objectData.material,
                     color: objectData.color,
-                    physics: objectData.physics
+                    physics: true
                 });
             }
             
+            this.showChatMessage(`🎨 Creado: ${description}`);
+            
         } catch (error) {
             console.error('❌ Error al generar objeto:', error);
+            this.showChatMessage('❌ Error al crear objeto');
         }
+    }
+    
+    clearAllObjects() {
+        try {
+            console.log('🧹 Limpiando todos los objetos...');
+            
+            // Contar objetos antes de limpiar
+            const objectCount = this.objects.size;
+            
+            // Remover todos los objetos de la escena
+            for (const [id, object] of this.objects) {
+                if (object.mesh) {
+                    this.scene.remove(object.mesh);
+                    this.playerController.removeInteractableObject(object);
+                }
+            }
+            
+            // Limpiar el mapa de objetos
+            this.objects.clear();
+            
+            // Enviar evento al servidor si estamos en multijugador
+            if (this.isMultiplayer && this.networkManager && this.networkManager.isConnected) {
+                this.networkManager.sendClearAllObjects();
+            }
+            
+            this.showChatMessage(`🧹 Limpiados ${objectCount} objetos`);
+            console.log(`✅ Limpiados ${objectCount} objetos exitosamente`);
+            
+        } catch (error) {
+            console.error('❌ Error al limpiar objetos:', error);
+            this.showChatMessage('❌ Error al limpiar objetos');
+        }
+    }
+    
+    analyzeAndCreateObject(description, position) {
+        const lowerDesc = description.toLowerCase();
+        
+        // Análisis básico de la descripción
+        const analysis = {
+            type: 'cube',
+            size: { x: 1, y: 1, z: 1 },
+            color: this.generateRandomColor(),
+            material: 'basic',
+            effects: []
+        };
+        
+        // Detectar tipo de objeto basado en palabras clave
+        if (lowerDesc.includes('esfera') || lowerDesc.includes('sphere') || lowerDesc.includes('bola') || lowerDesc.includes('ball')) {
+            analysis.type = 'sphere';
+        } else if (lowerDesc.includes('cilindro') || lowerDesc.includes('cylinder') || lowerDesc.includes('tubo') || lowerDesc.includes('tube')) {
+            analysis.type = 'cylinder';
+        } else if (lowerDesc.includes('cono') || lowerDesc.includes('cone') || lowerDesc.includes('pirámide') || lowerDesc.includes('pyramid')) {
+            analysis.type = 'cone';
+        } else if (lowerDesc.includes('toro') || lowerDesc.includes('torus') || lowerDesc.includes('donut') || lowerDesc.includes('anillo')) {
+            analysis.type = 'torus';
+        } else if (lowerDesc.includes('árbol') || lowerDesc.includes('tree') || lowerDesc.includes('planta')) {
+            analysis.type = 'tree';
+        } else if (lowerDesc.includes('casa') || lowerDesc.includes('house') || lowerDesc.includes('edificio')) {
+            analysis.type = 'house';
+        } else if (lowerDesc.includes('coche') || lowerDesc.includes('car') || lowerDesc.includes('auto')) {
+            analysis.type = 'car';
+        } else if (lowerDesc.includes('dragón') || lowerDesc.includes('dragon')) {
+            analysis.type = 'dragon';
+        } else if (lowerDesc.includes('cristal') || lowerDesc.includes('crystal')) {
+            analysis.type = 'crystal';
+        } else if (lowerDesc.includes('flor') || lowerDesc.includes('flower')) {
+            analysis.type = 'flower';
+        } else if (lowerDesc.includes('roca') || lowerDesc.includes('rock') || lowerDesc.includes('piedra')) {
+            analysis.type = 'rock';
+        } else if (lowerDesc.includes('robot') || lowerDesc.includes('androide')) {
+            analysis.type = 'robot';
+        } else if (lowerDesc.includes('nave') || lowerDesc.includes('spaceship') || lowerDesc.includes('cohete')) {
+            analysis.type = 'spaceship';
+        } else if (lowerDesc.includes('castillo') || lowerDesc.includes('castle')) {
+            analysis.type = 'castle';
+        } else if (lowerDesc.includes('puente') || lowerDesc.includes('bridge')) {
+            analysis.type = 'bridge';
+        } else if (lowerDesc.includes('torre') || lowerDesc.includes('tower')) {
+            analysis.type = 'tower';
+        } else if (lowerDesc.includes('fuego') || lowerDesc.includes('fire') || lowerDesc.includes('llama')) {
+            analysis.type = 'fire';
+        } else if (lowerDesc.includes('hielo') || lowerDesc.includes('ice') || lowerDesc.includes('nieve')) {
+            analysis.type = 'ice';
+        } else if (lowerDesc.includes('agua') || lowerDesc.includes('water') || lowerDesc.includes('río')) {
+            analysis.type = 'water';
+        }
+        
+        // Detectar tamaño
+        if (lowerDesc.includes('grande') || lowerDesc.includes('big') || lowerDesc.includes('enorme')) {
+            analysis.size = { x: 2, y: 2, z: 2 };
+        } else if (lowerDesc.includes('pequeño') || lowerDesc.includes('small') || lowerDesc.includes('mini')) {
+            analysis.size = { x: 0.5, y: 0.5, z: 0.5 };
+        } else if (lowerDesc.includes('gigante') || lowerDesc.includes('huge')) {
+            analysis.size = { x: 3, y: 3, z: 3 };
+        }
+        
+        // Detectar color
+        if (lowerDesc.includes('rojo') || lowerDesc.includes('red')) {
+            analysis.color = 0xff0000;
+        } else if (lowerDesc.includes('azul') || lowerDesc.includes('blue')) {
+            analysis.color = 0x0000ff;
+        } else if (lowerDesc.includes('verde') || lowerDesc.includes('green')) {
+            analysis.color = 0x00ff00;
+        } else if (lowerDesc.includes('amarillo') || lowerDesc.includes('yellow')) {
+            analysis.color = 0xffff00;
+        } else if (lowerDesc.includes('naranja') || lowerDesc.includes('orange')) {
+            analysis.color = 0xff8000;
+        } else if (lowerDesc.includes('morado') || lowerDesc.includes('purple')) {
+            analysis.color = 0x8000ff;
+        } else if (lowerDesc.includes('rosa') || lowerDesc.includes('pink')) {
+            analysis.color = 0xff80ff;
+        } else if (lowerDesc.includes('marrón') || lowerDesc.includes('brown')) {
+            analysis.color = 0x8b4513;
+        } else if (lowerDesc.includes('negro') || lowerDesc.includes('black')) {
+            analysis.color = 0x000000;
+        } else if (lowerDesc.includes('blanco') || lowerDesc.includes('white')) {
+            analysis.color = 0xffffff;
+        } else if (lowerDesc.includes('gris') || lowerDesc.includes('gray')) {
+            analysis.color = 0x808080;
+        } else if (lowerDesc.includes('dorado') || lowerDesc.includes('gold')) {
+            analysis.color = 0xffd700;
+        } else if (lowerDesc.includes('plateado') || lowerDesc.includes('silver')) {
+            analysis.color = 0xc0c0c0;
+        } else if (lowerDesc.includes('turquesa') || lowerDesc.includes('turquoise')) {
+            analysis.color = 0x40e0d0;
+        }
+        
+        // Detectar material
+        if (lowerDesc.includes('transparente') || lowerDesc.includes('transparent')) {
+            analysis.material = 'transparent';
+        } else if (lowerDesc.includes('brillante') || lowerDesc.includes('shiny')) {
+            analysis.material = 'shiny';
+        } else if (lowerDesc.includes('mágico') || lowerDesc.includes('magical')) {
+            analysis.material = 'magical';
+        }
+        
+        // Detectar efectos
+        if (lowerDesc.includes('flotante') || lowerDesc.includes('floating')) {
+            analysis.effects.push('floating');
+        }
+        if (lowerDesc.includes('brillante') || lowerDesc.includes('glowing')) {
+            analysis.effects.push('glowing');
+        }
+        if (lowerDesc.includes('rotación') || lowerDesc.includes('spinning')) {
+            analysis.effects.push('spinning');
+        }
+        
+        return analysis;
+    }
+    
+    createMeshFromData(objectData) {
+        let geometry;
+        
+        // Crear geometría basada en el tipo
+        switch (objectData.type) {
+            case 'sphere':
+                geometry = new THREE.SphereGeometry(objectData.size.x / 2, 32, 32);
+                break;
+            case 'cylinder':
+                geometry = new THREE.CylinderGeometry(objectData.size.x / 2, objectData.size.x / 2, objectData.size.y, 32);
+                break;
+            case 'cone':
+                geometry = new THREE.ConeGeometry(objectData.size.x / 2, objectData.size.y, 32);
+                break;
+            case 'torus':
+                geometry = new THREE.TorusGeometry(objectData.size.x / 2, objectData.size.x / 4, 16, 32);
+                break;
+            case 'tree':
+                // Árbol: cilindro para tronco + esfera para copa
+                const treeGroup = new THREE.Group();
+                const trunkGeometry = new THREE.CylinderGeometry(0.2, 0.3, 2, 8);
+                const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                trunk.position.y = 1;
+                treeGroup.add(trunk);
+                
+                const leavesGeometry = new THREE.SphereGeometry(1, 16, 16);
+                const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+                const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+                leaves.position.y = 2.5;
+                treeGroup.add(leaves);
+                
+                treeGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return treeGroup;
+                
+            case 'house':
+                // Casa: cubo principal + techo triangular
+                const houseGroup = new THREE.Group();
+                const houseGeometry = new THREE.BoxGeometry(2, 1.5, 2);
+                const houseMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const house = new THREE.Mesh(houseGeometry, houseMaterial);
+                house.position.y = 0.75;
+                houseGroup.add(house);
+                
+                const roofGeometry = new THREE.ConeGeometry(1.5, 1, 4);
+                const roofMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+                const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+                roof.position.y = 2;
+                roof.rotation.y = Math.PI / 4;
+                houseGroup.add(roof);
+                
+                houseGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return houseGroup;
+                
+            case 'car':
+                // Coche: cubo principal + cilindros para ruedas
+                const carGroup = new THREE.Group();
+                const carGeometry = new THREE.BoxGeometry(2, 0.5, 1);
+                const carMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const car = new THREE.Mesh(carGeometry, carMaterial);
+                carGroup.add(car);
+                
+                const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
+                const wheelMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
+                
+                const wheel1 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel1.position.set(-0.7, -0.4, 0.6);
+                wheel1.rotation.z = Math.PI / 2;
+                carGroup.add(wheel1);
+                
+                const wheel2 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel2.position.set(0.7, -0.4, 0.6);
+                wheel2.rotation.z = Math.PI / 2;
+                carGroup.add(wheel2);
+                
+                const wheel3 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel3.position.set(-0.7, -0.4, -0.6);
+                wheel3.rotation.z = Math.PI / 2;
+                carGroup.add(wheel3);
+                
+                const wheel4 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel4.position.set(0.7, -0.4, -0.6);
+                wheel4.rotation.z = Math.PI / 2;
+                carGroup.add(wheel4);
+                
+                carGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return carGroup;
+                
+            case 'dragon':
+                // Dragón: cuerpo alargado + alas + cabeza
+                const dragonGroup = new THREE.Group();
+                const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.2, 3, 8);
+                const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x8B0000 });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.rotation.z = Math.PI / 2;
+                dragonGroup.add(body);
+                
+                const headGeometry = new THREE.SphereGeometry(0.4, 16, 16);
+                const headMaterial = new THREE.MeshLambertMaterial({ color: 0x8B0000 });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.position.set(1.5, 0, 0);
+                dragonGroup.add(head);
+                
+                const wingGeometry = new THREE.BoxGeometry(1, 0.1, 0.8);
+                const wingMaterial = new THREE.MeshLambertMaterial({ color: 0x4B0082 });
+                const wing1 = new THREE.Mesh(wingGeometry, wingMaterial);
+                wing1.position.set(0, 0.5, 0.5);
+                wing1.rotation.x = Math.PI / 4;
+                dragonGroup.add(wing1);
+                
+                const wing2 = new THREE.Mesh(wingGeometry, wingMaterial);
+                wing2.position.set(0, 0.5, -0.5);
+                wing2.rotation.x = -Math.PI / 4;
+                dragonGroup.add(wing2);
+                
+                dragonGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return dragonGroup;
+                
+            case 'crystal':
+                // Cristal: octaedro
+                geometry = new THREE.OctahedronGeometry(objectData.size.x / 2);
+                break;
+                
+            case 'flower':
+                // Flor: esfera pequeña + cilindro delgado
+                const flowerGroup = new THREE.Group();
+                const stemGeometry = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
+                const stemMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+                const stem = new THREE.Mesh(stemGeometry, stemMaterial);
+                stem.position.y = 0.5;
+                flowerGroup.add(stem);
+                
+                const petalGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+                const petalMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const petal = new THREE.Mesh(petalGeometry, petalMaterial);
+                petal.position.y = 1.3;
+                flowerGroup.add(petal);
+                
+                flowerGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return flowerGroup;
+                
+            case 'rock':
+                geometry = new THREE.DodecahedronGeometry(objectData.size.x / 2);
+                break;
+                
+            case 'robot':
+                // Robot: cubo principal + cabeza + brazos
+                const robotGroup = new THREE.Group();
+                const robotBodyGeometry = new THREE.BoxGeometry(1, 1.5, 0.5);
+                const robotBodyMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+                const robotBody = new THREE.Mesh(robotBodyGeometry, robotBodyMaterial);
+                robotBody.position.y = 0.75;
+                robotGroup.add(robotBody);
+                
+                const robotHeadGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+                const robotHeadMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+                const robotHead = new THREE.Mesh(robotHeadGeometry, robotHeadMaterial);
+                robotHead.position.y = 1.9;
+                robotGroup.add(robotHead);
+                
+                const armGeometry = new THREE.BoxGeometry(0.2, 0.8, 0.2);
+                const armMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+                const arm1 = new THREE.Mesh(armGeometry, armMaterial);
+                arm1.position.set(-0.6, 0.75, 0);
+                robotGroup.add(arm1);
+                
+                const arm2 = new THREE.Mesh(armGeometry, armMaterial);
+                arm2.position.set(0.6, 0.75, 0);
+                robotGroup.add(arm2);
+                
+                robotGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return robotGroup;
+                
+            case 'spaceship':
+                // Nave espacial: cono + cilindro
+                const shipGroup = new THREE.Group();
+                const shipBodyGeometry = new THREE.CylinderGeometry(0.3, 0.1, 2, 8);
+                const shipBodyMaterial = new THREE.MeshLambertMaterial({ color: 0x4169E1 });
+                const shipBody = new THREE.Mesh(shipBodyGeometry, shipBodyMaterial);
+                shipBody.rotation.z = Math.PI / 2;
+                shipGroup.add(shipBody);
+                
+                const shipNoseGeometry = new THREE.ConeGeometry(0.1, 0.5, 8);
+                const shipNoseMaterial = new THREE.MeshLambertMaterial({ color: 0x4169E1 });
+                const shipNose = new THREE.Mesh(shipNoseGeometry, shipNoseMaterial);
+                shipNose.position.set(1.25, 0, 0);
+                shipNose.rotation.z = Math.PI / 2;
+                shipGroup.add(shipNose);
+                
+                shipGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return shipGroup;
+                
+            case 'castle':
+                // Castillo: torre principal + torres pequeñas
+                const castleGroup = new THREE.Group();
+                const mainTowerGeometry = new THREE.CylinderGeometry(1, 1, 3, 8);
+                const mainTowerMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+                const mainTower = new THREE.Mesh(mainTowerGeometry, mainTowerMaterial);
+                mainTower.position.y = 1.5;
+                castleGroup.add(mainTower);
+                
+                const smallTowerGeometry = new THREE.CylinderGeometry(0.3, 0.3, 2, 8);
+                const smallTowerMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+                
+                const tower1 = new THREE.Mesh(smallTowerGeometry, smallTowerMaterial);
+                tower1.position.set(1.5, 1, 0);
+                castleGroup.add(tower1);
+                
+                const tower2 = new THREE.Mesh(smallTowerGeometry, smallTowerMaterial);
+                tower2.position.set(-1.5, 1, 0);
+                castleGroup.add(tower2);
+                
+                castleGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return castleGroup;
+                
+            case 'bridge':
+                // Puente: cubo largo
+                geometry = new THREE.BoxGeometry(3, 0.3, 1);
+                break;
+                
+            case 'tower':
+                // Torre: cilindro alto
+                geometry = new THREE.CylinderGeometry(0.5, 0.5, 4, 8);
+                break;
+                
+            case 'fire':
+                // Fuego: cono invertido
+                geometry = new THREE.ConeGeometry(0.5, 1, 8);
+                break;
+                
+            case 'ice':
+                // Hielo: cubo con transparencia
+                geometry = new THREE.BoxGeometry(1, 1, 1);
+                break;
+                
+            case 'water':
+                // Agua: cubo plano
+                geometry = new THREE.BoxGeometry(2, 0.2, 2);
+                break;
+                
+            default:
+                geometry = new THREE.BoxGeometry(objectData.size.x, objectData.size.y, objectData.size.z);
+        }
+        
+        // Crear material basado en el tipo
+        let material;
+        switch (objectData.material) {
+            case 'transparent':
+                material = new THREE.MeshLambertMaterial({ 
+                    color: objectData.color,
+                    transparent: true,
+                    opacity: 0.6
+                });
+                break;
+            case 'shiny':
+                material = new THREE.MeshPhongMaterial({ 
+                    color: objectData.color,
+                    shininess: 100
+                });
+                break;
+            case 'magical':
+                material = new THREE.MeshLambertMaterial({ 
+                    color: objectData.color,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                break;
+            default:
+                material = new THREE.MeshLambertMaterial({ 
+                    color: objectData.color,
+                    transparent: true,
+                    opacity: 0.9
+                });
+        }
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        
+        return mesh;
     }
     
     generateRandomColor() {
@@ -1125,6 +1668,20 @@ export class Game3D {
     onPlayerRotate(rotation) {
         if (this.networkManager && this.networkManager.isConnected) {
             this.networkManager.sendPlayerRotate(rotation);
+        }
+    }
+    
+    onObjectMove(objectId, position, rotation) {
+        if (this.networkManager && this.networkManager.isConnected) {
+            // Throttling para evitar spam de actualizaciones
+            const now = Date.now();
+            const lastUpdate = this.lastObjectMoveUpdate || 0;
+            const throttleInterval = 100; // ms
+            
+            if (now - lastUpdate > throttleInterval) {
+                this.networkManager.sendObjectMove(objectId, position, rotation);
+                this.lastObjectMoveUpdate = now;
+            }
         }
     }
 

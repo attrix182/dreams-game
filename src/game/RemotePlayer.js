@@ -129,7 +129,7 @@ export class RemotePlayer {
                 (position.y || 1) + 1, // Mantener sobre el suelo
                 position.z || 0
             );
-            console.log('🎮 Actualizando posición de', this.name, 'a:', this.targetPosition);
+          
         }
     }
     

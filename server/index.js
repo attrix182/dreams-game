@@ -98,6 +98,10 @@ io.on('connection', (socket) => {
         gameServer.deleteObject(socket, data);
     });
     
+    socket.on('objects:clear', () => {
+        gameServer.clearAllObjects(socket);
+    });
+    
     socket.on('chat:message', (data) => {
         gameServer.broadcastChat(socket.id, data);
     });

@@ -65,6 +65,8 @@ export class PlayerController {
         this.onGenerateObject = null; // Nuevo callback para generar objetos
         this.onPlayerMove = null; // Callback para notificar movimiento
         this.onPlayerRotate = null; // Callback para notificar rotación
+        this.onObjectMove = null; // Callback para notificar movimiento de objetos
+        this.onClearAllObjects = null; // Callback para limpiar todos los objetos
     }
 
     init() {
@@ -110,6 +112,13 @@ export class PlayerController {
             if (event.code === 'KeyG') {
                 event.preventDefault(); // Prevenir comportamiento por defecto
                 this.generateObject();
+            }
+            
+            // Limpiar todos los objetos con C
+            if (event.code === 'KeyC') {
+                event.preventDefault();
+                console.log('🔍 Tecla C presionada - llamando clearAllObjects');
+                this.clearAllObjects();
             }
             
             // Saltar con Space
@@ -273,6 +282,17 @@ export class PlayerController {
             this.onGenerateObject();
         }
     }
+    
+    clearAllObjects() {
+        console.log('🔍 clearAllObjects llamado en PlayerController');
+        console.log('🔍 onClearAllObjects callback:', this.onClearAllObjects);
+        if (this.onClearAllObjects) {
+            console.log('🔍 Ejecutando callback onClearAllObjects');
+            this.onClearAllObjects();
+        } else {
+            console.log('❌ onClearAllObjects callback no está configurado');
+        }
+    }
 
     resetCameraRotation() {
         // Resetear rotación de la cámara
@@ -344,6 +364,11 @@ export class PlayerController {
         
         // Aplicar posición al objeto
         object.mesh.position.copy(targetPosition);
+        
+        // Notificar movimiento del objeto al servidor
+        if (this.onObjectMove) {
+            this.onObjectMove(object.id, object.mesh.position, object.mesh.rotation);
+        }
     }
 
     handleObjectScroll(event) {
@@ -370,6 +395,11 @@ export class PlayerController {
         // Posicionar el objeto a la distancia calculada desde la cámara
         const newPosition = this.camera.position.clone().add(cameraDirection.multiplyScalar(newDistance));
         object.mesh.position.copy(newPosition);
+        
+        // Notificar movimiento del objeto al servidor
+        if (this.onObjectMove) {
+            this.onObjectMove(object.id, object.mesh.position, object.mesh.rotation);
+        }
     }
 
     stopObjectDrag() {
@@ -502,12 +532,16 @@ export class PlayerController {
         // Configurar raycaster desde la cámara
         this.interactionRaycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
         
+        // Extraer solo los meshes de los objetos interactuables para el raycaster
+        const meshes = this.interactableObjects.map(obj => obj.mesh).filter(mesh => mesh);
+        
         // Buscar objetos interactuables
-        const intersects = this.interactionRaycaster.intersectObjects(this.interactableObjects, true);
+        const intersects = this.interactionRaycaster.intersectObjects(meshes, true);
         
         if (intersects.length > 0) {
-            const closestObject = intersects[0].object;
-            const gameObject = this.findGameObject(closestObject);
+            const closestMesh = intersects[0].object;
+            // Encontrar el objeto completo que contiene este mesh
+            const gameObject = this.interactableObjects.find(obj => obj.mesh === closestMesh);
             
             if (gameObject && gameObject !== this.currentInteractable) {
                 this.currentInteractable = gameObject;
@@ -596,11 +630,9 @@ export class PlayerController {
     updateHUD() {
         // Contar objetos con física activa
         const physicsObjects = this.interactableObjects.filter(obj => {
-            const gameObj = this.findGameObject(obj);
-            return gameObj && gameObj.physics && gameObj.physics.enabled;
+            return obj.physics && obj.physics.enabled;
         }).length;
         
-        // Actualizar información del HUD
         this.hud.innerHTML = `
             <div style="margin-bottom: 10px;">
                 <strong>Vida:</strong> ${this.health}%
@@ -615,7 +647,7 @@ export class PlayerController {
                 <strong>Velocidad:</strong> ${this.speed} m/s
             </div>
             <div style="margin-bottom: 10px;">
-                <strong>Objetos:</strong> ${this.interactableObjects.length} | <strong>Actual:</strong> ${this.currentInteractable ? this.currentInteractable.data?.name || 'Sin nombre' : 'Ninguno'}
+                <strong>Objetos:</strong> ${this.interactableObjects.length} | <strong>Actual:</strong> ${this.currentInteractable ? this.currentInteractable.name || this.currentInteractable.id || 'Sin nombre' : 'Ninguno'}
             </div>
             <div style="margin-bottom: 10px;">
                 <strong>Física:</strong> ${physicsObjects} objetos activos
@@ -633,7 +665,8 @@ export class PlayerController {
             this.crosshair.style.borderColor = '#00ff00';
             this.crosshair.style.transform = 'translate(-50%, -50%) scale(1.2)';
             
-            this.interactionIndicator.textContent = `Presiona E para interactuar | Click para mover ${this.currentInteractable.data.name}`;
+            const objectName = this.currentInteractable.name || this.currentInteractable.id || 'Sin nombre';
+            this.interactionIndicator.textContent = `Presiona E para interactuar | Click para mover ${objectName}`;
             this.interactionIndicator.style.opacity = '1';
         } else {
             this.crosshair.style.borderColor = 'white';
@@ -646,13 +679,15 @@ export class PlayerController {
     // Métodos públicos
     addInteractableObject(object) {
         if (object && object.mesh) {
-            this.interactableObjects.push(object.mesh);
+            // Agregar el objeto completo, no solo el mesh
+            this.interactableObjects.push(object);
         }
     }
 
     removeInteractableObject(object) {
         if (object && object.mesh) {
-            const index = this.interactableObjects.indexOf(object.mesh);
+            // Buscar y remover el objeto completo
+            const index = this.interactableObjects.findIndex(obj => obj === object);
             if (index > -1) {
                 this.interactableObjects.splice(index, 1);
             }
@@ -709,5 +744,16 @@ export class PlayerController {
         this.health = 100;
         this.energy = 100;
         this.setPosition(0, this.height, 0);
+    }
+
+    clearAllObjects() {
+        console.log('🔍 clearAllObjects llamado en PlayerController');
+        console.log('🔍 onClearAllObjects callback:', this.onClearAllObjects);
+        if (this.onClearAllObjects) {
+            console.log('🔍 Ejecutando callback onClearAllObjects');
+            this.onClearAllObjects();
+        } else {
+            console.log('❌ onClearAllObjects callback no está configurado');
+        }
     }
 } 

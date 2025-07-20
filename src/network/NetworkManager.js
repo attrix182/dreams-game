@@ -129,6 +129,11 @@ export class NetworkManager {
             this.trigger('onObjectDeleted', data);
         });
         
+        this.socket.on('objects:cleared', () => {
+            this.objects.clear();
+            this.trigger('onObjectsCleared');
+        });
+        
         // Chat
         this.socket.on('chat:message', (message) => {
             this.trigger('onChatMessage', message);
@@ -216,8 +221,14 @@ export class NetworkManager {
     }
     
     sendObjectDelete(objectId) {
-        if (this.isConnected && this.socket) {
-            this.socket.emit('object:delete', { objectId });
+        if (this.socket && this.isConnected) {
+            this.socket.emit('object:delete', { id: objectId });
+        }
+    }
+    
+    sendClearAllObjects() {
+        if (this.socket && this.isConnected) {
+            this.socket.emit('objects:clear');
         }
     }
     
