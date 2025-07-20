@@ -225,6 +225,11 @@ export class Game3D {
             this.updateMultiplayerIndicator();
         });
         
+        this.networkManager.on('onConnectError', (error) => {
+            this.isMultiplayer = false;
+            this.updateMultiplayerIndicator();
+        });
+        
         // Inicialización del juego
         this.networkManager.on('onGameInit', (data) => {
             // Limpiar jugadores remotos existentes
@@ -282,6 +287,16 @@ export class Game3D {
         // Chat
         this.networkManager.on('onChatMessage', (message) => {
             this.showChatMessage(`${message.playerName}: ${message.message}`);
+        });
+        
+        // Estado del mundo
+        this.networkManager.on('onWorldState', (state) => {
+            this.syncWorldState(state);
+        });
+        
+        // Errores
+        this.networkManager.on('onError', (error) => {
+            this.showChatMessage(`❌ Error de red: ${error.message}`);
         });
     }
     
@@ -392,6 +407,59 @@ export class Game3D {
             this.playerController.removeInteractableObject(object);
             this.objects.delete(objectId);
         }
+    }
+    
+    syncWorldState(state) {
+        // Sincronizar jugadores
+        const currentPlayerIds = new Set(this.remotePlayers.keys());
+        const serverPlayerIds = new Set(state.players.map(p => p.id));
+        
+        // Remover jugadores que ya no están en el servidor
+        for (const playerId of currentPlayerIds) {
+            if (!serverPlayerIds.has(playerId) && playerId !== this.networkManager?.playerId) {
+                this.removeRemotePlayer(playerId);
+            }
+        }
+        
+        // Agregar/actualizar jugadores del servidor
+        state.players.forEach(playerData => {
+            if (playerData.id !== this.networkManager?.playerId) {
+                if (this.remotePlayers.has(playerData.id)) {
+                    // Actualizar posición existente
+                    this.updateRemotePlayerPosition(playerData.id, playerData.position);
+                    this.updateRemotePlayerRotation(playerData.id, playerData.rotation);
+                } else {
+                    // Agregar nuevo jugador
+                    this.addRemotePlayer(playerData);
+                }
+            }
+        });
+        
+        // Sincronizar objetos
+        const currentObjectIds = new Set(this.objects.keys());
+        const serverObjectIds = new Set(state.objects.map(o => o.id));
+        
+        // Remover objetos que ya no están en el servidor
+        for (const objectId of currentObjectIds) {
+            if (!serverObjectIds.has(objectId)) {
+                this.deleteObjectFromNetwork(objectId);
+            }
+        }
+        
+        // Agregar/actualizar objetos del servidor
+        state.objects.forEach(objectData => {
+            if (this.objects.has(objectData.id)) {
+                // Actualizar objeto existente
+                this.moveObjectFromNetwork({
+                    id: objectData.id,
+                    position: objectData.position,
+                    rotation: objectData.rotation
+                });
+            } else {
+                // Crear nuevo objeto
+                this.createObjectFromNetwork(objectData);
+            }
+        });
     }
     
     setupWindowEvents() {
@@ -723,26 +791,21 @@ export class Game3D {
             this.playerController.update(deltaTime);
         }
         
-        // Enviar actualización al servidor cada 100ms
+        // Enviar actualización al servidor con throttling
         if (this.isMultiplayer && this.networkManager && this.networkManager.isConnected) {
-            const now = Date.now();
-            if (!this.lastPositionUpdate || now - this.lastPositionUpdate > 100) {
-                const position = this.playerController.getPosition();
-                const rotation = this.playerController.getCameraRotation();
+            const position = this.playerController.getPosition();
+            const rotation = this.playerController.getCameraRotation();
+            
+            // Solo enviar si la posición cambió significativamente
+            if (!this.lastSentPosition || 
+                position.distanceTo(this.lastSentPosition) > 0.1 ||
+                Math.abs(rotation.y - (this.lastSentRotation?.y || 0)) > 0.1) {
                 
-                // Solo enviar si la posición cambió significativamente
-                if (!this.lastSentPosition || 
-                    position.distanceTo(this.lastSentPosition) > 0.1 ||
-                    Math.abs(rotation.y - this.lastSentRotation?.y) > 0.1) {
-                    
-                    this.networkManager.sendPlayerMove(position);
-                    this.networkManager.sendPlayerRotate(rotation);
-                    
-                    this.lastSentPosition = position.clone();
-                    this.lastSentRotation = { ...rotation };
-                }
+                this.networkManager.sendPlayerMove(position);
+                this.networkManager.sendPlayerRotate(rotation);
                 
-                this.lastPositionUpdate = now;
+                this.lastSentPosition = position.clone();
+                this.lastSentRotation = { ...rotation };
             }
         }
         

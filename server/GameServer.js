@@ -9,8 +9,8 @@ export class GameServer {
         this.worldConfig = {
             size: 1000,
             gravity: -9.8,
-            maxPlayers: 20, // Reducido para menor consumo
-            maxObjects: 100 // Límite de objetos para evitar sobrecarga
+            maxPlayers: 20,
+            maxObjects: 100
         };
         
         // Estadísticas
@@ -24,44 +24,50 @@ export class GameServer {
         // Configurar limpieza automática
         this.setupAutoCleanup();
         
-        // Iniciar loop del servidor optimizado
+        // Iniciar loop del servidor
         this.startGameLoop();
     }
     
     setupAutoCleanup() {
-        // Limpiar objetos antiguos cada 5 minutos
+        // Limpiar cada 30 segundos
         setInterval(() => {
             this.cleanupOldObjects();
-        }, 5 * 60 * 1000);
-        
-        // Limpiar estadísticas cada hora
+            this.cleanupDisconnectedPlayers();
+        }, 30000);
+    }
+    
+    startGameLoop() {
+        // Loop del servidor a 60 FPS
         setInterval(() => {
-            this.cleanupStats();
-        }, 60 * 60 * 1000);
+            this.update();
+        }, 1000 / 60);
     }
     
     cleanupOldObjects() {
         const now = Date.now();
-        const maxAge = 30 * 60 * 1000; // 30 minutos
+        const maxAge = 5 * 60 * 1000; // 5 minutos
         
-        for (const [objectId, object] of this.objects) {
+        for (const [id, object] of this.objects) {
             if (now - object.createdAt > maxAge) {
-                this.objects.delete(objectId);
-                this.io.emit('object:deleted', { id: objectId });
+                this.objects.delete(id);
+                this.io.emit('object:deleted', { id });
             }
         }
     }
     
-    cleanupStats() {
-        // Resetear contadores para evitar desbordamiento
-        this.stats.totalConnections = Math.min(this.stats.totalConnections, 1000000);
-        this.stats.objectsCreated = Math.min(this.stats.objectsCreated, 1000000);
+    cleanupDisconnectedPlayers() {
+        const now = Date.now();
+        const timeout = 10 * 1000; // 10 segundos
+        
+        for (const [id, player] of this.players) {
+            if (now - player.lastUpdate > timeout) {
+                this.removePlayer(id);
+            }
+        }
     }
     
     // Gestión de jugadores
     addPlayer(socket) {
-        console.log('👤 Nuevo jugador conectado:', socket.id);
-        
         // Verificar límite de jugadores
         if (this.players.size >= this.worldConfig.maxPlayers) {
             socket.emit('error', { message: 'Servidor lleno' });
@@ -84,8 +90,6 @@ export class GameServer {
         this.stats.totalConnections++;
         this.stats.currentConnections = this.players.size;
         
-        console.log('✅ Jugador agregado:', player.name, 'Total:', this.players.size);
-        
         // Enviar estado inicial al jugador
         const gameData = {
             playerId: socket.id,
@@ -98,9 +102,6 @@ export class GameServer {
         
         // Notificar a otros jugadores
         socket.broadcast.emit('player:joined', player);
-        
-        // Enviar estado completo a todos los jugadores
-        this.broadcastWorldState();
     }
     
     removePlayer(playerId) {
@@ -118,8 +119,6 @@ export class GameServer {
         if (player) {
             player.position = data;
             player.lastUpdate = Date.now();
-            
-            console.log('📍 Jugador movido:', player.name, 'posición:', data);
             
             // Broadcast a otros jugadores (excluyendo al emisor)
             socket.broadcast.emit('player:moved', {
@@ -196,7 +195,6 @@ export class GameServer {
             
             // Broadcast a todos los jugadores
             this.io.emit('object:deleted', { id: data.objectId });
-            
         }
     }
     
@@ -216,7 +214,7 @@ export class GameServer {
         }
     }
     
-    // Utilidades
+    // Métodos de utilidad
     getPlayerCount() {
         return this.players.size;
     }
@@ -225,19 +223,13 @@ export class GameServer {
         return this.objects.size;
     }
     
-    getPlayer(playerId) {
-        return this.players.get(playerId);
-    }
-    
-    getObject(objectId) {
-        return this.objects.get(objectId);
-    }
-    
-    // Loop del servidor
-    startGameLoop() {
-        setInterval(() => {
-            this.update();
-        }, 1000 / 10); // 10 FPS para el servidor (más eficiente)
+    getStats() {
+        return {
+            ...this.stats,
+            players: this.players.size,
+            objects: this.objects.size,
+            uptime: process.uptime()
+        };
     }
     
     update() {
@@ -249,37 +241,25 @@ export class GameServer {
         // Limpiar jugadores desconectados
         this.cleanupDisconnectedPlayers();
         
-        // Enviar estado del mundo cada 15 segundos (menos frecuente)
+        // Enviar estado del mundo cada 15 segundos
         if (Date.now() % 15000 < 100) {
             this.broadcastWorldState();
         }
     }
     
     updatePhysics() {
-        // Simular física simple en el servidor (optimizado)
-        const now = Date.now();
-        for (const [objectId, object] of this.objects) {
-            if (object.physics && object.position.y > 0) {
-                // Aplicar gravedad solo si el objeto no se ha movido recientemente
-                if (!object.lastMoved || now - object.lastMoved > 1000) {
-                    object.position.y -= 0.1;
+        // Física simple para objetos
+        for (const [id, object] of this.objects) {
+            if (object.physics && object.position) {
+                // Aplicar gravedad
+                if (object.position.y > 0) {
+                    object.position.y += this.worldConfig.gravity * 0.016; // 60 FPS
                     
                     // Colisión con el suelo
                     if (object.position.y <= 0) {
                         object.position.y = 0;
                     }
                 }
-            }
-        }
-    }
-    
-    cleanupDisconnectedPlayers() {
-        const now = Date.now();
-        const timeout = 120000; // 2 minutos (más permisivo)
-        
-        for (const [playerId, player] of this.players) {
-            if (now - player.lastUpdate > timeout) {
-                this.removePlayer(playerId);
             }
         }
     }

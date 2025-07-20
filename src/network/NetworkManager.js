@@ -10,13 +10,21 @@ export class NetworkManager {
         this.objects = new Map();
         this.callbacks = new Map();
         
+        // Configuración de red
+        this.updateInterval = 100; // ms
+        this.lastUpdate = 0;
+        
         // Usar configuración
         this.serverUrl = config.serverUrl;
     }
     
     connect() {
         try {
-            this.socket = io(this.serverUrl);
+            this.socket = io(this.serverUrl, {
+                transports: ['websocket', 'polling'],
+                timeout: 20000,
+                forceNew: true
+            });
             this.setupEventListeners();
         } catch (error) {
             // Error silencioso
@@ -38,18 +46,17 @@ export class NetworkManager {
         // Conexión
         this.socket.on('connect', () => {
             this.isConnected = true;
-            
-            if (this.callbacks.has('onConnect')) {
-                this.callbacks.get('onConnect')();
-            }
+            this.trigger('onConnect');
         });
         
         this.socket.on('disconnect', () => {
             this.isConnected = false;
-            
-            if (this.callbacks.has('onDisconnect')) {
-                this.callbacks.get('onDisconnect')();
-            }
+            this.trigger('onDisconnect');
+        });
+        
+        this.socket.on('connect_error', (error) => {
+            this.isConnected = false;
+            this.trigger('onConnectError', error);
         });
         
         // Inicialización del juego
@@ -72,9 +79,7 @@ export class NetworkManager {
                 this.objects.set(obj.id, obj);
             });
             
-            if (this.callbacks.has('onGameInit')) {
-                this.callbacks.get('onGameInit')(data);
-            }
+            this.trigger('onGameInit', data);
         });
         
         // Eventos de jugadores
@@ -100,20 +105,14 @@ export class NetworkManager {
             const player = this.players.get(data.id);
             if (player) {
                 player.rotation = data.rotation;
-                
-                if (this.callbacks.has('onPlayerRotated')) {
-                    this.callbacks.get('onPlayerRotated')(data);
-                }
+                this.trigger('onPlayerRotated', data);
             }
         });
         
         // Objetos
         this.socket.on('object:created', (object) => {
             this.objects.set(object.id, object);
-            
-            if (this.callbacks.has('onObjectCreated')) {
-                this.callbacks.get('onObjectCreated')(object);
-            }
+            this.trigger('onObjectCreated', object);
         });
         
         this.socket.on('object:moved', (data) => {
@@ -121,51 +120,98 @@ export class NetworkManager {
             if (object) {
                 object.position = data.position;
                 object.rotation = data.rotation;
-                
-                if (this.callbacks.has('onObjectMoved')) {
-                    this.callbacks.get('onObjectMoved')(data);
-                }
+                this.trigger('onObjectMoved', data);
             }
         });
         
         this.socket.on('object:deleted', (data) => {
             this.objects.delete(data.id);
-            
-            if (this.callbacks.has('onObjectDeleted')) {
-                this.callbacks.get('onObjectDeleted')(data);
-            }
+            this.trigger('onObjectDeleted', data);
         });
         
         // Chat
         this.socket.on('chat:message', (message) => {
-            if (this.callbacks.has('onChatMessage')) {
-                this.callbacks.get('onChatMessage')(message);
-            }
+            this.trigger('onChatMessage', message);
+        });
+        
+        // Estado del mundo
+        this.socket.on('world:state', (state) => {
+            this.trigger('onWorldState', state);
+        });
+        
+        // Errores
+        this.socket.on('error', (error) => {
+            this.trigger('onError', error);
         });
     }
     
-    // Envío de datos
+    // Envío de datos con throttling
     sendPlayerMove(position) {
         if (this.isConnected && this.socket) {
-            this.socket.emit('player:move', position);
+            const now = Date.now();
+            if (now - this.lastUpdate > this.updateInterval) {
+                this.socket.emit('player:move', {
+                    x: position.x,
+                    y: position.y,
+                    z: position.z
+                });
+                this.lastUpdate = now;
+            }
         }
     }
     
     sendPlayerRotate(rotation) {
         if (this.isConnected && this.socket) {
-            this.socket.emit('player:rotate', rotation);
+            this.socket.emit('player:rotate', {
+                x: rotation.x,
+                y: rotation.y,
+                z: rotation.z
+            });
         }
     }
     
     sendObjectCreate(objectData) {
         if (this.isConnected && this.socket) {
-            this.socket.emit('object:create', objectData);
+            this.socket.emit('object:create', {
+                type: objectData.type,
+                name: objectData.name,
+                position: {
+                    x: objectData.position.x,
+                    y: objectData.position.y,
+                    z: objectData.position.z
+                },
+                rotation: {
+                    x: objectData.rotation.x,
+                    y: objectData.rotation.y,
+                    z: objectData.rotation.z
+                },
+                scale: {
+                    x: objectData.scale.x,
+                    y: objectData.scale.y,
+                    z: objectData.scale.z
+                },
+                material: objectData.material,
+                color: objectData.color,
+                physics: objectData.physics
+            });
         }
     }
     
     sendObjectMove(objectId, position, rotation) {
         if (this.isConnected && this.socket) {
-            this.socket.emit('object:move', { objectId, position, rotation });
+            this.socket.emit('object:move', {
+                objectId,
+                position: {
+                    x: position.x,
+                    y: position.y,
+                    z: position.z
+                },
+                rotation: {
+                    x: rotation.x,
+                    y: rotation.y,
+                    z: rotation.z
+                }
+            });
         }
     }
     
@@ -188,6 +234,13 @@ export class NetworkManager {
     
     off(event) {
         this.callbacks.delete(event);
+    }
+    
+    // Método helper para disparar eventos
+    trigger(event, data) {
+        if (this.callbacks.has(event)) {
+            this.callbacks.get(event)(data);
+        }
     }
     
     // Utilidades
