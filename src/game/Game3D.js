@@ -910,8 +910,19 @@ export class Game3D {
         // Tecla T para abrir chat
         document.addEventListener('keydown', (e) => {
             if ((e.key === 't' || e.key === 'T') && chatContainer.style.display === 'none') {
-                chatContainer.style.display = 'block';
-                chatInput.focus();
+                // Verificar si estoy escribiendo en algún input
+                const activeElement = document.activeElement;
+                const isTypingInInput = activeElement && (
+                    activeElement.tagName === 'INPUT' || 
+                    activeElement.tagName === 'TEXTAREA' ||
+                    activeElement.contentEditable === 'true'
+                );
+                
+                if (!isTypingInInput) {
+                    e.preventDefault(); // Prevenir que escriba 't' en el input
+                    chatContainer.style.display = 'block';
+                    chatInput.focus();
+                }
             }
         });
         
