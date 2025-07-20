@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dreams 3D - Juego con IA Local</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            min-width: 300px;
+        }
+
+        #ui h1 {
+            margin-bottom: 15px;
+            color: #fff;
+            font-size: 24px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+        }
+
+        .input-group input::placeholder {
+            color: #aaa;
+        }
+
+        #generateBtn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #generateBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        #generateBtn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #loading {
+            display: none;
+            text-align: center;
+            color: #ff6b6b;
+            margin-top: 10px;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 400px;
+        }
+
+        #instructions h3 {
+            margin-bottom: 10px;
+            color: #ff6b6b;
+        }
+
+        #instructions ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        #instructions li {
+            margin-bottom: 5px;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        #instructions li:before {
+            content: "•";
+            color: #ff6b6b;
+            position: absolute;
+            left: 0;
+        }
+
+        .object-info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            min-width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="canvas"></canvas>
+        
+
+
+        <div id="instructions">
+            <h3>🎯 Controles</h3>
+            <div id="firstPersonControls" style="display: none;">
+                <ul>
+                    <li><strong>WASD:</strong> Mover</li>
+                    <li><strong>Mouse:</strong> Mirar alrededor (horizonte nivelado)</li>
+                    <li><strong>E:</strong> Interactuar con objetos</li>
+                    <li><strong>G:</strong> Generar objeto (menú rápido)</li>
+                    <li><strong>Space:</strong> Saltar</li>
+                    <li><strong>Shift:</strong> Correr</li>
+                    <li><strong>R:</strong> Resetear rotación de cámara</li>
+                    <li><strong>Escape:</strong> Desbloquear mouse</li>
+                </ul>
+            </div>
+            <div id="thirdPersonControls">
+                <ul>
+                    <li><strong>Click izquierdo:</strong> Seleccionar objeto</li>
+                    <li><strong>Arrastrar:</strong> Mover objeto</li>
+                    <li><strong>Rueda del mouse:</strong> Zoom</li>
+                    <li><strong>Click derecho + arrastrar:</strong> Rotar cámara</li>
+                    <li><strong>C:</strong> Cambiar modo cámara</li>
+                    <li><strong>Escape:</strong> Deseleccionar objeto</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="object-info" id="objectInfo" style="display: none;">
+            <h3>📦 Objeto Seleccionado</h3>
+            <div id="objectDetails"></div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+    
+    <script>
+        // Función para cambiar las instrucciones según el modo
+        function updateInstructions(isFirstPerson) {
+            const firstPersonControls = document.getElementById('firstPersonControls');
+            const thirdPersonControls = document.getElementById('thirdPersonControls');
+            
+            if (isFirstPerson) {
+                firstPersonControls.style.display = 'block';
+                thirdPersonControls.style.display = 'none';
+            } else {
+                firstPersonControls.style.display = 'none';
+                thirdPersonControls.style.display = 'block';
+            }
+        }
+        
+        // Escuchar cambios de modo de cámara
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'c' || event.key === 'C') {
+                setTimeout(() => {
+                    // Asumir que el modo cambió (se maneja en el juego)
+                    // Esto es una aproximación, el estado real se maneja en Game3D
+                    const isFirstPerson = document.getElementById('playerHUD') !== null;
+                    updateInstructions(isFirstPerson);
+                }, 100);
+            }
+        });
+        
+        // Inicializar en modo primera persona
+        updateInstructions(true);
+    </script>
+</body>
+</html> 

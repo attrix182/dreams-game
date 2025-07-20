@@ -1,0 +1,27 @@
+{
+  "name": "dreams-3d",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dev:multiplayer": "concurrently \"npm run dev\" \"node server/index.js\"",
+    "start": "node server/index.js",
+    "docker:build": "npm run build && docker build -t dreams-3d .",
+    "docker:run": "docker run -p 3001:3001 dreams-3d"
+  },
+  "dependencies": {
+    "@xenova/transformers": "^2.15.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4",
+    "socket.io-client": "^4.8.1",
+    "three": "^0.158.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "vite": "^5.0.0"
+  }
+}
