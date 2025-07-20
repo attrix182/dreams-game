@@ -7,17 +7,18 @@ export class RemotePlayer {
         this.scene = scene;
         this.mesh = null;
         this.nameTag = null;
+        this.lastUpdate = Date.now();
         
         // Estado del jugador
         this.position = new THREE.Vector3(
-            playerData.position.x,
-            playerData.position.y,
-            playerData.position.z
+            playerData.position.x || 0,
+            (playerData.position.y || 1) + 1, // Posición sobre el suelo
+            playerData.position.z || 0
         );
         this.rotation = new THREE.Euler(
-            playerData.rotation.x,
-            playerData.rotation.y,
-            playerData.rotation.z
+            playerData.rotation?.x || 0,
+            playerData.rotation?.y || 0,
+            playerData.rotation?.z || 0
         );
         
         // Interpolación simple
@@ -27,13 +28,17 @@ export class RemotePlayer {
         
         this.createMesh();
         this.createNameTag();
+        
+        console.log('🎮 RemotePlayer creado para:', this.name, 'en posición:', this.position);
     }
     
     createMesh() {
-        // Crear geometría del jugador (cápsula simple)
-        const geometry = new THREE.CapsuleGeometry(0.5, 1, 4, 8);
+        // Usar CylinderGeometry en lugar de CapsuleGeometry (más compatible)
+        const geometry = new THREE.CylinderGeometry(0.5, 0.5, 2, 8);
         const material = new THREE.MeshLambertMaterial({ 
-            color: this.getPlayerColor(this.id)
+            color: this.getPlayerColor(this.id),
+            transparent: true,
+            opacity: 0.9
         });
         
         this.mesh = new THREE.Mesh(geometry, material);
@@ -51,6 +56,7 @@ export class RemotePlayer {
         
         // Agregar al escena
         this.scene.add(this.mesh);
+        console.log('✅ Mesh de RemotePlayer agregado a la escena');
     }
     
     createNameTag() {
@@ -86,6 +92,8 @@ export class RemotePlayer {
     }
     
     update(deltaTime) {
+        if (!this.mesh) return;
+        
         // Interpolar posición
         this.position.lerp(this.targetPosition, this.interpolationSpeed);
         this.mesh.position.copy(this.position);
@@ -97,17 +105,42 @@ export class RemotePlayer {
         this.mesh.rotation.copy(this.rotation);
         
         // Hacer que el nombre siempre mire hacia la cámara
-        if (this.nameTag && window.game3D && window.game3D.camera) {
-            this.nameTag.lookAt(window.game3D.camera.position);
+        if (this.nameTag) {
+            // Buscar la cámara de forma más robusta
+            let camera = null;
+            if (window.game3D && window.game3D.camera) {
+                camera = window.game3D.camera;
+            } else if (window.Dreams3DGame && window.Dreams3DGame.game && window.Dreams3DGame.game.camera) {
+                camera = window.Dreams3DGame.game.camera;
+            }
+            
+            if (camera) {
+                this.nameTag.lookAt(camera.position);
+            }
         }
+        
+        this.lastUpdate = Date.now();
     }
     
     updatePosition(position) {
-        this.targetPosition.set(position.x, position.y, position.z);
+        if (position) {
+            this.targetPosition.set(
+                position.x || 0,
+                (position.y || 1) + 1, // Mantener sobre el suelo
+                position.z || 0
+            );
+            console.log('🎮 Actualizando posición de', this.name, 'a:', this.targetPosition);
+        }
     }
     
     updateRotation(rotation) {
-        this.targetRotation.set(rotation.x, rotation.y, rotation.z);
+        if (rotation) {
+            this.targetRotation.set(
+                rotation.x || 0,
+                rotation.y || 0,
+                rotation.z || 0
+            );
+        }
     }
     
     remove() {
@@ -116,6 +149,7 @@ export class RemotePlayer {
             if (this.mesh.geometry) this.mesh.geometry.dispose();
             if (this.mesh.material) this.mesh.material.dispose();
             if (this.nameTag && this.nameTag.material) this.nameTag.material.dispose();
+            console.log('🗑️ RemotePlayer removido:', this.name);
         }
     }
     

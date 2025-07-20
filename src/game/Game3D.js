@@ -50,10 +50,10 @@ export class Game3D {
             this.cleanupOldObjects();
         }, 2 * 60 * 1000);
         
-        // Limpiar jugadores remotos desconectados cada minuto
-        setInterval(() => {
-            this.cleanupDisconnectedPlayers();
-        }, 60 * 1000);
+        // DESACTIVAR TEMPORALMENTE: Limpiar jugadores remotos desconectados cada minuto
+        // setInterval(() => {
+        //     this.cleanupDisconnectedPlayers();
+        // }, 60 * 1000);
     }
     
     cleanupOldObjects() {
@@ -301,15 +301,19 @@ export class Game3D {
     }
     
     addRemotePlayer(playerData) {
+        console.log('🎮 addRemotePlayer llamado con:', playerData);
         
         // Verificar que no exista ya
         if (this.remotePlayers.has(playerData.id)) {
+            console.log('⚠️ Jugador ya existe:', playerData.name);
             return;
         }
         
         try {
+            console.log('🎮 Creando RemotePlayer para:', playerData.name);
             const remotePlayer = new RemotePlayer(playerData, this.scene);
             this.remotePlayers.set(playerData.id, remotePlayer);
+            console.log('✅ RemotePlayer creado exitosamente. Total jugadores:', this.remotePlayers.size);
         } catch (error) {
             console.error('❌ Error al agregar jugador remoto:', error);
         }
@@ -331,10 +335,13 @@ export class Game3D {
         const remotePlayer = this.remotePlayers.get(playerId);
         if (remotePlayer) {
             try {
+                console.log('🎮 Actualizando posición de', remotePlayer.name, 'a:', position);
                 remotePlayer.updatePosition(position);
             } catch (error) {
-                // Error silencioso
+                console.error('❌ Error al actualizar posición de jugador:', error);
             }
+        } else {
+            console.log('⚠️ Jugador no encontrado para actualizar posición:', playerId);
         }
     }
     
@@ -344,8 +351,10 @@ export class Game3D {
             try {
                 remotePlayer.updateRotation(rotation);
             } catch (error) {
-                // Error silencioso
+                console.error('❌ Error al actualizar rotación de jugador:', error);
             }
+        } else {
+            console.log('⚠️ Jugador no encontrado para actualizar rotación:', playerId);
         }
     }
     
@@ -977,7 +986,24 @@ export class Game3D {
     }
 
     debugPlayers() {
-        // Método de debug sin logs para evitar lag
+        console.log('🎮 === DEBUG JUGADORES ===');
+        console.log('Jugadores remotos:', this.remotePlayers.size);
+        
+        this.remotePlayers.forEach((player, id) => {
+            console.log(`- ${player.name} (${id}):`, {
+                position: player.position,
+                targetPosition: player.targetPosition,
+                mesh: player.mesh ? '✅' : '❌',
+                inScene: player.mesh && this.scene.children.includes(player.mesh) ? '✅' : '❌',
+                lastUpdate: player.lastUpdate
+            });
+        });
+        
+        console.log('Objetos en escena:', this.scene.children.length);
+        console.log('Objetos que son jugadores:', this.scene.children.filter(child => 
+            child.userData && child.userData.isRemotePlayer
+        ).length);
+        console.log('========================');
     }
 
     debugMultiplayerConnection() {
