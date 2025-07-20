@@ -216,21 +216,17 @@ export class Game3D {
     setupNetworkEvents() {
         // Conexión
         this.networkManager.on('onConnect', () => {
-            console.log('🌐 Conectado al servidor multijugador');
             this.isMultiplayer = true;
             this.updateMultiplayerIndicator();
         });
         
         this.networkManager.on('onDisconnect', () => {
-            console.log('🌐 Desconectado del servidor multijugador');
             this.isMultiplayer = false;
             this.updateMultiplayerIndicator();
         });
         
         // Inicialización del juego
         this.networkManager.on('onGameInit', (data) => {
-            console.log('🎮 Inicialización del juego recibida:', data.players.length, 'jugadores,', data.objects.length, 'objetos');
-            
             // Limpiar jugadores remotos existentes
             this.remotePlayers.forEach(player => player.remove());
             this.remotePlayers.clear();
@@ -250,32 +246,27 @@ export class Game3D {
         
         // Nuevos jugadores
         this.networkManager.on('onPlayerJoined', (player) => {
-            console.log('👤 Jugador se unió:', player.name, 'ID:', player.id);
             this.addRemotePlayer(player);
             this.showChatMessage(`👤 ${player.name} se ha unido al juego`);
         });
         
         // Jugadores que se van
         this.networkManager.on('onPlayerLeft', (data) => {
-            console.log('👤 Jugador se fue:', data.name, 'ID:', data.id);
             this.removeRemotePlayer(data.id);
             this.showChatMessage(`👤 ${data.name} se ha desconectado`);
         });
         
         // Movimiento de jugadores
         this.networkManager.on('onPlayerMoved', (data) => {
-            console.log('📍 Jugador movido:', data.id, 'posición:', data.position);
             this.updateRemotePlayerPosition(data.id, data.position);
         });
         
         this.networkManager.on('onPlayerRotated', (data) => {
-            console.log('🔄 Jugador rotado:', data.id, 'rotación:', data.rotation);
             this.updateRemotePlayerRotation(data.id, data.rotation);
         });
         
         // Objetos
         this.networkManager.on('onObjectCreated', (object) => {
-            console.log('🎨 Objeto creado desde red:', object.name, 'ID:', object.id);
             this.createObjectFromNetwork(object);
             this.showChatMessage(`🎨 ${object.name} fue creado`);
         });
@@ -295,20 +286,15 @@ export class Game3D {
     }
     
     addRemotePlayer(playerData) {
-        console.log('🎮 Agregando jugador remoto:', playerData.name, 'ID:', playerData.id);
-        console.log('🎮 Posición:', playerData.position);
         
         // Verificar que no exista ya
         if (this.remotePlayers.has(playerData.id)) {
-            console.log('⚠️ Jugador remoto ya existe:', playerData.name);
             return;
         }
         
         try {
             const remotePlayer = new RemotePlayer(playerData, this.scene);
             this.remotePlayers.set(playerData.id, remotePlayer);
-            console.log('✅ Jugador remoto agregado exitosamente:', playerData.name);
-            console.log('🎮 Total de jugadores remotos:', this.remotePlayers.size);
         } catch (error) {
             console.error('❌ Error al agregar jugador remoto:', error);
         }

@@ -77,34 +77,22 @@ export class NetworkManager {
             }
         });
         
-        // Jugadores
+        // Eventos de jugadores
         this.socket.on('player:joined', (player) => {
-            console.log('📥 Jugador se unió (NetworkManager):', player.name, 'ID:', player.id);
             this.players.set(player.id, player);
-            
-            if (this.callbacks.has('onPlayerJoined')) {
-                this.callbacks.get('onPlayerJoined')(player);
-            }
+            this.trigger('onPlayerJoined', player);
         });
         
         this.socket.on('player:left', (data) => {
-            console.log('📥 Jugador se fue (NetworkManager):', data.name, 'ID:', data.id);
             this.players.delete(data.id);
-            
-            if (this.callbacks.has('onPlayerLeft')) {
-                this.callbacks.get('onPlayerLeft')(data);
-            }
+            this.trigger('onPlayerLeft', data);
         });
         
         this.socket.on('player:moved', (data) => {
-            console.log('📥 Jugador movido (NetworkManager):', data.id, 'posición:', data.position);
             const player = this.players.get(data.id);
             if (player) {
                 player.position = data.position;
-                
-                if (this.callbacks.has('onPlayerMoved')) {
-                    this.callbacks.get('onPlayerMoved')(data);
-                }
+                this.trigger('onPlayerMoved', data);
             }
         });
         
@@ -159,14 +147,12 @@ export class NetworkManager {
     // Envío de datos
     sendPlayerMove(position) {
         if (this.isConnected && this.socket) {
-            console.log('📤 Enviando movimiento:', position);
             this.socket.emit('player:move', position);
         }
     }
     
     sendPlayerRotate(rotation) {
         if (this.isConnected && this.socket) {
-            console.log('📤 Enviando rotación:', rotation);
             this.socket.emit('player:rotate', rotation);
         }
     }

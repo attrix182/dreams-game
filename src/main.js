@@ -8,8 +8,6 @@ class Dreams3DGame {
 
     async init() {
         try {
-            console.log('🎮 Inicializando Dreams 3D Multijugador...');
-            
             // Obtener el contenedor del juego
             const container = document.getElementById('gameContainer');
             if (!container) {
@@ -23,7 +21,6 @@ class Dreams3DGame {
             this.setupUIEvents();
             
             this.isInitialized = true;
-            console.log('✅ Dreams 3D Multijugador inicializado correctamente');
             
         } catch (error) {
             console.error('❌ Error al inicializar Dreams 3D:', error);
