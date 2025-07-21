@@ -345,6 +345,7 @@ export class PlayerController {
     // Sistema de manipulación de objetos (Portal style)
     startObjectDrag() {
         if (!this.currentInteractable) {
+            console.log('❌ No hay objeto interactuable seleccionado');
             return;
         }
         
@@ -352,20 +353,33 @@ export class PlayerController {
         
         // Verificar que el objeto tenga las propiedades necesarias
         if (!object || !object.mesh || !object.mesh.position) {
+            console.log('❌ Objeto no válido para arrastrar');
             return;
         }
+        
+        // Verificar distancia al objeto
+        const distanceToObject = object.mesh.position.distanceTo(this.camera.position);
+        if (distanceToObject > this.interactionDistance) {
+            console.log(`❌ Objeto muy lejos (${distanceToObject.toFixed(2)}m > ${this.interactionDistance}m)`);
+            return;
+        }
+        
+        console.log(`🎯 Iniciando arrastre de: ${object.name || object.id}`);
         
         this.objectManipulation.isDragging = true;
         this.objectManipulation.draggedObject = object;
         this.objectManipulation.originalPosition.copy(object.mesh.position);
         
         // Calcular distancia inicial desde la cámara
-        this.objectManipulation.dragDistance = object.mesh.position.distanceTo(this.camera.position);
+        this.objectManipulation.dragDistance = distanceToObject;
         
         // Desactivar gravedad y física del objeto mientras se arrastra
         if (object.physics) {
             object.physics.enabled = false;
         }
+        
+        // Agregar efecto visual al objeto arrastrado
+        this.addDragEffect(object);
     }
 
     updateObjectDrag(event) {
@@ -434,14 +448,56 @@ export class PlayerController {
         if (this.objectManipulation.isDragging) {
             const object = this.objectManipulation.draggedObject;
             
+            console.log(`🎯 Finalizando arrastre de: ${object.name || object.id}`);
+            
             // Reactivar gravedad y física del objeto
             if (object && object.physics) {
                 object.physics.enabled = true;
             }
             
+            // Remover efecto visual del objeto
+            this.removeDragEffect(object);
+            
+            // Notificar movimiento final al servidor
+            if (this.onObjectMove && object) {
+                this.onObjectMove(object.id, object.mesh.position, object.mesh.rotation);
+            }
+            
             this.objectManipulation.isDragging = false;
             this.objectManipulation.draggedObject = null;
         }
+    }
+    
+    addDragEffect(object) {
+        if (!object || !object.mesh) return;
+        
+        // Agregar outline verde al objeto arrastrado
+        object.mesh.traverse((child) => {
+            if (child.isMesh && child.material) {
+                // Guardar material original
+                if (!child.userData.originalMaterial) {
+                    child.userData.originalMaterial = child.material.clone();
+                }
+                
+                // Crear material con outline
+                const outlineMaterial = child.material.clone();
+                outlineMaterial.emissive = new THREE.Color(0x00ff00);
+                outlineMaterial.emissiveIntensity = 0.3;
+                child.material = outlineMaterial;
+            }
+        });
+    }
+    
+    removeDragEffect(object) {
+        if (!object || !object.mesh) return;
+        
+        // Restaurar material original
+        object.mesh.traverse((child) => {
+            if (child.isMesh && child.userData.originalMaterial) {
+                child.material = child.userData.originalMaterial;
+                delete child.userData.originalMaterial;
+            }
+        });
     }
 
     // Método para debuggear el estado del sistema
@@ -575,8 +631,25 @@ export class PlayerController {
         
         if (intersects.length > 0) {
             const closestMesh = intersects[0].object;
-            // Encontrar el objeto completo que contiene este mesh
-            const gameObject = this.interactableObjects.find(obj => obj.mesh === closestMesh);
+            
+            // Encontrar el objeto completo que contiene este mesh (incluyendo meshes hijos)
+            let gameObject = this.interactableObjects.find(obj => obj.mesh === closestMesh);
+            
+            // Si no se encuentra directamente, buscar en meshes hijos
+            if (!gameObject) {
+                gameObject = this.interactableObjects.find(obj => {
+                    if (obj.mesh) {
+                        let found = false;
+                        obj.mesh.traverse((child) => {
+                            if (child === closestMesh) {
+                                found = true;
+                            }
+                        });
+                        return found;
+                    }
+                    return false;
+                });
+            }
             
             if (gameObject && gameObject !== this.currentInteractable) {
                 this.currentInteractable = gameObject;
@@ -676,6 +749,37 @@ export class PlayerController {
             return obj.physics && obj.physics.enabled;
         }).length;
         
+        // Información de objeto interactuable
+        let interactableInfo = '';
+        if (this.currentInteractable) {
+            const distance = this.currentInteractable.mesh.position.distanceTo(this.camera.position);
+            const inRange = distance <= this.interactionDistance;
+            const statusColor = inRange ? '#00ff00' : '#ff0000';
+            const statusText = inRange ? 'En rango' : 'Muy lejos';
+            
+            interactableInfo = `
+                <div style="margin-bottom: 10px; color: ${statusColor};">
+                    <strong>Objeto Interactuable:</strong><br>
+                    Nombre: ${this.currentInteractable.name || this.currentInteractable.id || 'Sin nombre'}<br>
+                    Distancia: ${distance.toFixed(2)}m<br>
+                    Estado: ${statusText}
+                </div>
+            `;
+        }
+        
+        // Información de arrastre
+        let dragInfo = '';
+        if (this.objectManipulation.isDragging) {
+            dragInfo = `
+                <div style="margin-bottom: 10px; color: #ffff00;">
+                    <strong>Arrastrando:</strong><br>
+                    Objeto: ${this.objectManipulation.draggedObject.name || this.objectManipulation.draggedObject.id || 'Sin nombre'}<br>
+                    Distancia: ${this.objectManipulation.dragDistance.toFixed(2)}m<br>
+                    Controles: Mover mouse + Scroll
+                </div>
+            `;
+        }
+        
         this.hud.innerHTML = `
             <div style="margin-bottom: 10px;">
                 <strong>Vida:</strong> ${this.health}%
@@ -690,30 +794,48 @@ export class PlayerController {
                 <strong>Velocidad:</strong> ${this.speed} m/s
             </div>
             <div style="margin-bottom: 10px;">
-                <strong>Objetos:</strong> ${this.interactableObjects.length} | <strong>Actual:</strong> ${this.currentInteractable ? this.currentInteractable.name || this.currentInteractable.id || 'Sin nombre' : 'Ninguno'}
+                <strong>Objetos:</strong> ${this.interactableObjects.length} | <strong>Física:</strong> ${physicsObjects}
             </div>
-            <div style="margin-bottom: 10px;">
-                <strong>Física:</strong> ${physicsObjects} objetos activos
-            </div>
+            ${interactableInfo}
+            ${dragInfo}
         `;
         
         // Actualizar crosshair
         if (this.objectManipulation.isDragging) {
-            this.crosshair.style.borderColor = '#ff6600';
+            this.crosshair.style.borderColor = '#ffff00';
+            this.crosshair.style.backgroundColor = 'rgba(255, 255, 0, 0.3)';
             this.crosshair.style.transform = 'translate(-50%, -50%) scale(1.5)';
             
-            this.interactionIndicator.textContent = `Mantén click para mover | Scroll para acercar/alejar`;
+            this.interactionIndicator.textContent = `Arrastrando: ${this.objectManipulation.draggedObject.name || this.objectManipulation.draggedObject.id} | Scroll: Acercar/Alejar`;
             this.interactionIndicator.style.opacity = '1';
+            this.interactionIndicator.style.background = 'rgba(255, 255, 0, 0.8)';
         } else if (this.currentInteractable) {
-            this.crosshair.style.borderColor = '#00ff00';
-            this.crosshair.style.transform = 'translate(-50%, -50%) scale(1.2)';
+            const distance = this.currentInteractable.mesh.position.distanceTo(this.camera.position);
+            const inRange = distance <= this.interactionDistance;
             
-            const objectName = this.currentInteractable.name || this.currentInteractable.id || 'Sin nombre';
-            this.interactionIndicator.textContent = `Presiona E para interactuar | Click para mover ${objectName}`;
-            this.interactionIndicator.style.opacity = '1';
+            if (inRange) {
+                this.crosshair.style.borderColor = '#00ff00';
+                this.crosshair.style.backgroundColor = 'rgba(0, 255, 0, 0.3)';
+                this.crosshair.style.transform = 'translate(-50%, -50%) scale(1.2)';
+                
+                const objectName = this.currentInteractable.name || this.currentInteractable.id || 'Sin nombre';
+                this.interactionIndicator.textContent = `Click para mover: ${objectName} (${distance.toFixed(1)}m)`;
+                this.interactionIndicator.style.opacity = '1';
+                this.interactionIndicator.style.background = 'rgba(0, 255, 0, 0.8)';
+            } else {
+                this.crosshair.style.borderColor = '#ff0000';
+                this.crosshair.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
+                this.crosshair.style.transform = 'translate(-50%, -50%) scale(1.0)';
+                
+                const objectName = this.currentInteractable.name || this.currentInteractable.id || 'Sin nombre';
+                this.interactionIndicator.textContent = `Muy lejos: ${objectName} (${distance.toFixed(1)}m)`;
+                this.interactionIndicator.style.opacity = '1';
+                this.interactionIndicator.style.background = 'rgba(255, 0, 0, 0.8)';
+            }
         } else {
             this.crosshair.style.borderColor = 'white';
-            this.crosshair.style.transform = 'translate(-50%, -50%) scale(1)';
+            this.crosshair.style.backgroundColor = 'transparent';
+            this.crosshair.style.transform = 'translate(-50%, -50%) scale(1.0)';
             
             this.interactionIndicator.style.opacity = '0';
         }
