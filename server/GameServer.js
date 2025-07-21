@@ -90,6 +90,8 @@ export class GameServer {
         this.stats.totalConnections++;
         this.stats.currentConnections = this.players.size;
         
+        console.log(`🎮 Jugador conectado: ${player.name} (${socket.id}) - Total: ${this.players.size}`);
+        
         // Enviar estado inicial al jugador
         const gameData = {
             playerId: socket.id,
@@ -109,6 +111,8 @@ export class GameServer {
         if (player) {
             this.players.delete(playerId);
             this.stats.currentConnections = this.players.size;
+            
+            console.log(`👋 Jugador desconectado: ${player.name} (${playerId}) - Total: ${this.players.size}`);
             
             this.io.emit('player:left', { id: playerId, name: player.name });
         }
@@ -222,6 +226,29 @@ export class GameServer {
             
             this.io.emit('chat:message', message);
         }
+    }
+    
+    // Eventos del juego (minijuegos)
+    broadcastGameEvent(playerId, eventData) {
+        const player = this.players.get(playerId);
+        if (!player) {
+            console.log('❌ Jugador no encontrado para broadcast:', playerId);
+            return;
+        }
+        
+        console.log('📡 Broadcast evento del juego:', eventData.type, 'de', player.name, 'a', this.players.size, 'jugadores');
+        
+        // Agregar información del jugador al evento
+        const event = {
+            ...eventData,
+            playerId: playerId,
+            playerName: player.name,
+            timestamp: Date.now()
+        };
+        
+        // Broadcast a todos los jugadores
+        this.io.emit('game:event', event);
+        console.log('✅ Evento transmitido correctamente');
     }
     
     // Métodos de utilidad

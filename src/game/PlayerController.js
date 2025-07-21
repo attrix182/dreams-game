@@ -170,6 +170,106 @@ export class PlayerController {
                 this.debugState();
             }
             
+            // Debug de instancia del juego con F8
+            if (event.code === 'F8') {
+                event.preventDefault();
+                console.log('🔍 === DEBUG INSTANCIA DEL JUEGO ===');
+                console.log('window.game3D:', window.game3D);
+                console.log('window.game3D?.simpleTreasureGame:', window.game3D?.simpleTreasureGame);
+                console.log('window.game3D?.obstacleGame:', window.game3D?.obstacleGame);
+                console.log('this:', this);
+                console.log('🔍 === FIN DEBUG ===');
+            }
+            
+            // Debug del minijuego con F7
+            if (event.code === 'F7') {
+                event.preventDefault();
+                console.log('🎮 === DEBUG MINIJUEGO ===');
+                if (window.game3D?.simpleTreasureGame) {
+                    const game = window.game3D.simpleTreasureGame;
+                    console.log('Estado del minijuego:', {
+                        isActive: game.isActive,
+                        isHost: game.isHost,
+                        gameId: game.gameId,
+                        treasures: game.treasures.length,
+                        collectedTreasures: game.collectedTreasures.size,
+                        playerScores: Object.fromEntries(game.playerScores),
+                        gameUI: !!game.gameUI
+                    });
+                    
+                    // Verificar si la UI existe en el DOM
+                    const uiElement = document.getElementById('simpleTreasureGameUI');
+                    console.log('UI en DOM:', !!uiElement);
+                    if (uiElement) {
+                        console.log('UI visible:', uiElement.style.display !== 'none');
+                    }
+                } else {
+                    console.log('❌ Minijuego no disponible');
+                }
+                
+                // Verificar estado de la red
+                if (window.game3D?.networkManager) {
+                    const network = window.game3D.networkManager;
+                    console.log('Estado de la red:', {
+                        isConnected: network.isConnected,
+                        playerId: network.playerId,
+                        playerCount: network.getPlayerCount(),
+                        callbacks: Array.from(network.callbacks.keys())
+                    });
+                    
+                    // Verificar jugadores conectados
+                    const players = network.getAllPlayers();
+                    console.log('Jugadores conectados:', players);
+                    
+                    // Verificar objetos en la red
+                    const objects = network.getAllObjects();
+                    console.log('Objetos en la red:', objects.length);
+                }
+                
+                console.log('🎮 === FIN DEBUG ===');
+            }
+            
+            // Debug de colisiones con F11
+            if (event.code === 'F11') {
+                event.preventDefault();
+                if (window.game3D && window.game3D.debugCollisions) {
+                    window.game3D.debugCollisions();
+                }
+            }
+            
+            // Minijuego de obstáculos con F12
+            if (event.code === 'F12') {
+                event.preventDefault();
+                if (window.game3D && window.game3D.obstacleGame) {
+                    if (window.game3D.obstacleGame.isActive) {
+                        window.game3D.obstacleGame.stop();
+                    } else {
+                        window.game3D.obstacleGame.start();
+                    }
+                }
+            }
+            
+            // Minijuego simple con F10 o F9
+            if (event.code === 'F10' || event.code === 'F9') {
+                event.preventDefault();
+                console.log('🎯 F10 presionada - Minijuego Simple');
+                console.log('🔍 window.game3D:', window.game3D);
+                console.log('🔍 simpleTreasureGame:', window.game3D?.simpleTreasureGame);
+                
+                if (window.game3D && window.game3D.simpleTreasureGame) {
+                    console.log('🎯 Estado actual del minijuego:', window.game3D.simpleTreasureGame.isActive);
+                    if (window.game3D.simpleTreasureGame.isActive) {
+                        console.log('⏹️ Deteniendo minijuego simple...');
+                        window.game3D.simpleTreasureGame.stop();
+                    } else {
+                        console.log('🎯 Iniciando minijuego simple...');
+                        window.game3D.simpleTreasureGame.start();
+                    }
+                } else {
+                    console.log('❌ Minijuego simple no disponible');
+                }
+            }
+            
             // Forzar inicio de arrastre con F2 (para testing)
             if (event.code === 'F2') {
                 event.preventDefault();
@@ -279,7 +379,13 @@ export class PlayerController {
     }
 
     lockPointer() {
-        document.body.requestPointerLock();
+        try {
+            if (document.pointerLockElement !== document.body) {
+                document.body.requestPointerLock();
+            }
+        } catch (error) {
+            console.warn('⚠️ Error al bloquear el puntero:', error);
+        }
     }
 
     unlockPointer() {
@@ -404,7 +510,18 @@ export class PlayerController {
             cameraDirection.multiplyScalar(this.objectManipulation.dragDistance)
         );
         
-        // Aplicar posición al objeto
+        // Verificar colisiones antes de aplicar la posición
+        if (window.game3D && window.game3D.checkCollision) {
+            const collision = window.game3D.checkCollision(targetPosition, object.mesh, object.id);
+            
+            if (collision.colliding) {
+                // Si hay colisión, mantener la posición anterior
+                console.log(`🚫 Colisión durante arrastre: ${collision.object.name || collision.object.id}`);
+                return;
+            }
+        }
+        
+        // Aplicar posición al objeto (solo si no hay colisión)
         object.mesh.position.copy(targetPosition);
         
         // Notificar movimiento del objeto al servidor
@@ -436,6 +553,19 @@ export class PlayerController {
         
         // Posicionar el objeto a la distancia calculada desde la cámara
         const newPosition = this.camera.position.clone().add(cameraDirection.multiplyScalar(newDistance));
+        
+        // Verificar colisiones antes de aplicar la posición
+        if (window.game3D && window.game3D.checkCollision) {
+            const collision = window.game3D.checkCollision(newPosition, object.mesh, object.id);
+            
+            if (collision.colliding) {
+                // Si hay colisión, revertir la distancia
+                this.objectManipulation.dragDistance = currentDistance;
+                console.log(`🚫 Colisión durante scroll: ${collision.object.name || collision.object.id}`);
+                return;
+            }
+        }
+        
         object.mesh.position.copy(newPosition);
         
         // Notificar movimiento del objeto al servidor
@@ -526,6 +656,12 @@ export class PlayerController {
         
         // Actualizar HUD
         this.updateHUD();
+        
+                    // Verificar recolección de tesoros
+            if (window.game3D && window.game3D.simpleTreasureGame && window.game3D.simpleTreasureGame.isActive) {
+                const playerPosition = this.getPosition();
+                window.game3D.simpleTreasureGame.checkTreasureCollection('local', playerPosition);
+            }
     }
 
     updateMovement(deltaTime) {
@@ -794,7 +930,7 @@ export class PlayerController {
                 <strong>Velocidad:</strong> ${this.speed} m/s
             </div>
             <div style="margin-bottom: 10px;">
-                <strong>Objetos:</strong> ${this.interactableObjects.length} | <strong>Física:</strong> ${physicsObjects}
+                <strong>Objetos:</strong> ${this.interactableObjects.length} | <strong>Física:</strong> ${physicsObjects} | <strong>Ambiente:</strong> ${this.countEnvironmentObjects()}
             </div>
             ${interactableInfo}
             ${dragInfo}
@@ -928,5 +1064,15 @@ export class PlayerController {
         } else {
             console.log('❌ onClearAllObjects callback no está configurado');
         }
+    }
+    
+    countEnvironmentObjects() {
+        let count = 0;
+        this.scene.traverse((object) => {
+            if (object.isMesh && object.name && object.name.startsWith('test_')) {
+                count++;
+            }
+        });
+        return count;
     }
 } 

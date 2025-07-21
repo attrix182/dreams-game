@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { PlayerController } from './PlayerController.js';
 import { Object3D } from './Object3D.js';
 import { NetworkManager } from '../network/NetworkManager.js';
@@ -7,6 +9,8 @@ import { ChatSystem } from '../ui/ChatSystem.js';
 import { AssetManager } from './AssetManager.js';
 import { ItemCatalog } from '../ui/ItemCatalog.js';
 import { CommandParser } from './CommandParser.js';
+import { ObstacleCourseGame } from './ObstacleCourseGame.js';
+import { SimpleTreasureGame } from './SimpleTreasureGame.js';
 
 export class Game3D {
     constructor(container) {
@@ -36,10 +40,16 @@ export class Game3D {
         this.assetManager = new AssetManager();
         this.itemCatalog = null;
         this.commandParser = new CommandParser();
+        this.obstacleGame = null; // Se inicializará después de setupPlayerControllerCallbacks
+        this.simpleTreasureGame = null; // Se inicializará después de setupPlayerControllerCallbacks
         
         // Colecciones con límites
         this.objects = new Map();
         this.remotePlayers = new Map();
+        
+        // Ambiente 3D
+        this.environmentModel = null;
+        this.groundMesh = null;
         
         // Estado del juego
         this.isMultiplayer = false;
@@ -125,6 +135,9 @@ export class Game3D {
             // Crear suelo
             this.createGround();
             
+            // Cargar ambiente 3D
+            await this.loadEnvironment3D();
+            
             // Crear controlador del jugador
             this.playerController = new PlayerController(this.camera, this.scene);
             this.playerController.init();
@@ -150,6 +163,18 @@ export class Game3D {
             
             // Inicializar catálogo de items
             this.itemCatalog = new ItemCatalog(this);
+            
+            // Inicializar minijuegos después del player controller
+            this.obstacleGame = new ObstacleCourseGame(this);
+            console.log('🎮 ObstacleGame inicializado:', this.obstacleGame);
+            
+            try {
+                this.simpleTreasureGame = new SimpleTreasureGame(this);
+                console.log('🎯 SimpleTreasureGame inicializado:', this.simpleTreasureGame);
+            } catch (error) {
+                console.error('❌ Error inicializando SimpleTreasureGame:', error);
+                this.simpleTreasureGame = null;
+            }
             
             // Marcar como inicializado
             this.isInitialized = true;
@@ -194,29 +219,465 @@ export class Game3D {
     }
     
     createGround() {
-        // Crear suelo más grande y visible
-        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        // Crear suelo discreto para el ambiente urbano
+        const groundGeometry = new THREE.PlaneGeometry(100, 100);
         const groundMaterial = new THREE.MeshLambertMaterial({ 
-            color: 0x90EE90,
-            side: THREE.DoubleSide
+            color: 0x333333, // Gris oscuro para asfalto
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.3 // Semi-transparente para no interferir con el ambiente
         });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = -Math.PI / 2;
-        ground.position.y = -0.1;
+        ground.position.y = -0.5; // Bajo el nivel del suelo para no interferir
         ground.receiveShadow = true;
         this.scene.add(ground);
         
-        // Agregar un suelo adicional de respaldo (más pequeño)
-        const backupGroundGeometry = new THREE.PlaneGeometry(50, 50);
-        const backupGroundMaterial = new THREE.MeshLambertMaterial({ 
-            color: 0x90EE90,
-            side: THREE.DoubleSide
+        // Guardar referencia del suelo para poder ocultarlo si es necesario
+        this.groundMesh = ground;
+    }
+    
+    async loadEnvironment3D() {
+        try {
+            console.log('🏙️ Cargando ambiente 3D...');
+            this.showChatMessage('🏙️ Cargando ambiente 3D...');
+            
+            // Verificar que los loaders estén disponibles
+            console.log('🔍 Verificando loaders:', { OBJLoader: !!OBJLoader, MTLLoader: !!MTLLoader });
+            if (!OBJLoader || !MTLLoader) {
+                throw new Error('Loaders OBJ/MTL no disponibles');
+            }
+            
+            // Crear loader para archivos OBJ
+            const objLoader = new OBJLoader();
+            const mtlLoader = new MTLLoader();
+            
+            // Configurar el MTLLoader para cargar texturas desde la carpeta correcta
+            mtlLoader.setPath('/assets/9btvoxf8n0cg-3dt/textures/');
+            
+            // Configurar rutas de los archivos
+            const objPath = '/assets/9btvoxf8n0cg-3dt/Street environment_V01.obj';
+            const mtlPath = '/assets/9btvoxf8n0cg-3dt/Street environment_V01.mtl';
+            
+            console.log('📁 Rutas de archivos:', { objPath, mtlPath });
+            
+            // Verificar si el archivo existe
+            try {
+                const response = await fetch(objPath, { method: 'HEAD' });
+                if (!response.ok) {
+                    throw new Error(`Archivo no encontrado: ${objPath}`);
+                }
+                console.log('✅ Archivo OBJ encontrado');
+            } catch (error) {
+                console.error('❌ Error verificando archivo:', error);
+                this.showChatMessage('❌ Archivo OBJ no encontrado, creando ambiente de prueba');
+                this.createTestEnvironment();
+                return;
+            }
+            
+            // Intentar cargar el modelo OBJ con materiales
+            const model = await new Promise((resolve, reject) => {
+                // Primero intentar cargar materiales
+                mtlLoader.load(
+                    mtlPath,
+                    (materials) => {
+                        console.log('✅ Materiales cargados:', materials);
+                        materials.preload();
+                        
+                        // Configurar loader con materiales
+                        objLoader.setMaterials(materials);
+                        
+                        // Cargar modelo con materiales
+                        objLoader.load(
+                            objPath,
+                            (object) => {
+                                console.log('✅ Modelo 3D cargado con materiales:', object);
+                                resolve(object);
+                            },
+                            (progress) => {
+                                const percent = progress.loaded / progress.total * 100;
+                                console.log('🏗️ Cargando modelo:', percent.toFixed(1) + '%');
+                                this.showChatMessage(`🏗️ Cargando modelo: ${percent.toFixed(1)}%`);
+                            },
+                            (error) => {
+                                console.error('❌ Error cargando modelo OBJ:', error);
+                                reject(error);
+                            }
+                        );
+                    },
+                    (progress) => {
+                        const percent = progress.loaded / progress.total * 100;
+                        console.log('📦 Cargando materiales:', percent.toFixed(1) + '%');
+                        this.showChatMessage(`📦 Cargando materiales: ${percent.toFixed(1)}%`);
+                    },
+                    (error) => {
+                        console.warn('⚠️ Error cargando materiales, intentando sin texturas:', error);
+                        this.showChatMessage('⚠️ Cargando sin texturas...');
+                        
+                        // Cargar modelo sin materiales
+                        objLoader.load(
+                            objPath,
+                            (object) => {
+                                console.log('✅ Modelo 3D cargado sin materiales:', object);
+                                resolve(object);
+                            },
+                            (progress) => {
+                                const percent = progress.loaded / progress.total * 100;
+                                console.log('🏗️ Cargando modelo:', percent.toFixed(1) + '%');
+                                this.showChatMessage(`🏗️ Cargando modelo: ${percent.toFixed(1)}%`);
+                            },
+                            (error) => {
+                                console.error('❌ Error cargando modelo OBJ:', error);
+                                reject(error);
+                            }
+                        );
+                    }
+                );
+            });
+            
+            // Configurar el modelo con escala apropiada
+            model.scale.set(1, 1, 1); // Escala mucho más grande
+            model.position.set(0, 0, 0); // Centrar en el origen
+            model.rotation.y = 0; // Rotación si es necesario
+            
+            console.log('📏 Modelo configurado con escala:', model.scale);
+            
+            // Habilitar sombras y colisiones para todos los objetos del modelo
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    
+                    // Agregar colisiones al modelo
+                    child.userData.isCollisionObject = true;
+                    child.userData.isEnvironmentObject = true;
+                    
+                    // Mejorar materiales
+                    if (!child.material) {
+                        // Material básico si no tiene material
+                        child.material = new THREE.MeshLambertMaterial({ 
+                            color: 0x888888,
+                            side: THREE.DoubleSide 
+                        });
+                    } else {
+                        // Mejorar material existente
+                        child.material.side = THREE.DoubleSide;
+                        
+                        // Verificar si tiene textura
+                        if (child.material.map) {
+                            console.log('🎨 Textura encontrada para:', child.name, 'textura:', child.material.map.source.data?.src || 'sin src');
+                            // Configurar la textura correctamente
+                            child.material.map.wrapS = THREE.RepeatWrapping;
+                            child.material.map.wrapT = THREE.RepeatWrapping;
+                            child.material.map.flipY = false; // Importante para archivos TGA
+                        } else {
+                            // Si el material no tiene textura, usar colores básicos
+                            let color = 0x888888; // Color por defecto
+                            
+                            if (child.name.toLowerCase().includes('road') || child.name.toLowerCase().includes('street')) {
+                                color = 0x333333; // Asfalto oscuro
+                            } else if (child.name.toLowerCase().includes('building') || child.name.toLowerCase().includes('wall')) {
+                                color = 0x666666; // Edificio gris
+                            } else if (child.name.toLowerCase().includes('window')) {
+                                color = 0x87CEEB; // Ventana azul claro
+                            } else if (child.name.toLowerCase().includes('door')) {
+                                color = 0x8B4513; // Puerta marrón
+                            } else if (child.name.toLowerCase().includes('roof')) {
+                                color = 0x444444; // Techo oscuro
+                            }
+                            
+                            child.material.color.setHex(color);
+                        }
+                    }
+                    
+                    console.log('🏗️ Mesh procesado:', child.name || 'sin nombre', 'color:', child.material.color.getHexString(), 'colisión:', !!child.userData.isCollisionObject);
+                }
+            });
+            
+            // Agregar a la escena
+            this.scene.add(model);
+            
+            // Guardar referencia del modelo
+            this.environmentModel = model;
+            
+            console.log('🏙️ Ambiente 3D cargado exitosamente');
+            this.showChatMessage('✅ Ambiente 3D cargado con texturas reales');
+            this.showChatMessage('🏙️ ¡Modelo urbano completo cargado!');
+            
+        } catch (error) {
+            console.error('❌ Error cargando ambiente 3D:', error);
+            this.showChatMessage('❌ Error cargando ambiente 3D: ' + error.message);
+            
+            // Crear un objeto de prueba para verificar que la escena funciona
+            this.createTestEnvironment();
+        }
+    }
+    
+    createTestEnvironment() {
+        console.log('🧪 Creando ambiente de prueba...');
+        
+        // Crear algunos edificios básicos
+        const buildingGeometry = new THREE.BoxGeometry(10, 20, 10);
+        const buildingMaterial = new THREE.MeshLambertMaterial({ color: 0x666666 });
+        
+        // Crear material para edificios con colores diferentes
+        const buildingMaterial1 = new THREE.MeshLambertMaterial({ color: 0x666666 });
+        const buildingMaterial2 = new THREE.MeshLambertMaterial({ color: 0x888888 });
+        const buildingMaterial3 = new THREE.MeshLambertMaterial({ color: 0x444444 });
+        
+        // Edificio 1
+        const building1 = new THREE.Mesh(buildingGeometry, buildingMaterial1);
+        building1.position.set(-15, 10, -15);
+        building1.castShadow = true;
+        building1.receiveShadow = true;
+        building1.name = 'test_building_1';
+        this.scene.add(building1);
+        
+        // Edificio 2
+        const building2 = new THREE.Mesh(buildingGeometry, buildingMaterial2);
+        building2.position.set(15, 10, 15);
+        building2.castShadow = true;
+        building2.receiveShadow = true;
+        building2.name = 'test_building_2';
+        this.scene.add(building2);
+        
+        // Edificio 3 (más cerca)
+        const building3 = new THREE.Mesh(buildingGeometry, buildingMaterial3);
+        building3.position.set(0, 10, -20);
+        building3.castShadow = true;
+        building3.receiveShadow = true;
+        building3.name = 'test_building_3';
+        this.scene.add(building3);
+        
+        // Calle principal
+        const roadGeometry = new THREE.PlaneGeometry(50, 50);
+        const roadMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+        const road = new THREE.Mesh(roadGeometry, roadMaterial);
+        road.rotation.x = -Math.PI / 2;
+        road.position.y = 0.1;
+        road.receiveShadow = true;
+        road.name = 'test_road';
+        this.scene.add(road);
+        
+        // Líneas de la calle
+        const lineGeometry = new THREE.PlaneGeometry(40, 0.5);
+        const lineMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+        const line = new THREE.Mesh(lineGeometry, lineMaterial);
+        line.rotation.x = -Math.PI / 2;
+        line.position.y = 0.15;
+        line.name = 'test_road_line';
+        this.scene.add(line);
+        
+        // Farolas
+        const lampGeometry = new THREE.CylinderGeometry(0.2, 0.2, 8);
+        const lampMaterial = new THREE.MeshLambertMaterial({ color: 0x444444 });
+        
+        for (let i = 0; i < 4; i++) {
+            const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
+            const angle = (i * Math.PI) / 2;
+            lamp.position.set(Math.cos(angle) * 20, 4, Math.sin(angle) * 20);
+            lamp.castShadow = true;
+            lamp.receiveShadow = true;
+            lamp.name = `test_lamp_${i}`;
+            this.scene.add(lamp);
+        }
+        
+        // Bancas en el parque
+        const benchGeometry = new THREE.BoxGeometry(3, 0.5, 1);
+        const benchMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+        
+        for (let i = 0; i < 3; i++) {
+            const bench = new THREE.Mesh(benchGeometry, benchMaterial);
+            bench.position.set(-5 + i * 5, 0.25, 10);
+            bench.castShadow = true;
+            bench.receiveShadow = true;
+            bench.name = `test_bench_${i}`;
+            this.scene.add(bench);
+        }
+        
+        // Árboles
+        const treeTrunkGeometry = new THREE.CylinderGeometry(0.5, 0.8, 4);
+        const treeTrunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+        const treeLeavesGeometry = new THREE.SphereGeometry(2, 8, 8);
+        const treeLeavesMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+        
+        for (let i = 0; i < 4; i++) {
+            const trunk = new THREE.Mesh(treeTrunkGeometry, treeTrunkMaterial);
+            const leaves = new THREE.Mesh(treeLeavesGeometry, treeLeavesMaterial);
+            
+            const angle = (i * Math.PI) / 2 + Math.PI / 4;
+            const radius = 25;
+            trunk.position.set(Math.cos(angle) * radius, 2, Math.sin(angle) * radius);
+            leaves.position.set(Math.cos(angle) * radius, 5, Math.sin(angle) * radius);
+            
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            leaves.castShadow = true;
+            leaves.receiveShadow = true;
+            
+            trunk.name = `test_tree_trunk_${i}`;
+            leaves.name = `test_tree_leaves_${i}`;
+            
+            this.scene.add(trunk);
+            this.scene.add(leaves);
+        }
+        
+        console.log('🧪 Ambiente de prueba creado con 21 objetos');
+        this.showChatMessage('🧪 Ambiente de prueba creado: 3 edificios, calle, 4 farolas, 3 bancas, 4 árboles');
+    }
+    
+    clearTestEnvironment() {
+        console.log('🧹 Limpiando objetos del ambiente de prueba...');
+        
+        const objectsToRemove = [];
+        this.scene.traverse((object) => {
+            if (object.isMesh && object.name && object.name.startsWith('test_')) {
+                objectsToRemove.push(object);
+            }
         });
-        const backupGround = new THREE.Mesh(backupGroundGeometry, backupGroundMaterial);
-        backupGround.rotation.x = -Math.PI / 2;
-        backupGround.position.y = 0;
-        backupGround.receiveShadow = true;
-        this.scene.add(backupGround);
+        
+        objectsToRemove.forEach((object) => {
+            this.scene.remove(object);
+            console.log('🗑️ Removido:', object.name);
+        });
+        
+        console.log(`🧹 Limpiados ${objectsToRemove.length} objetos del ambiente`);
+        this.showChatMessage(`🧹 Limpiados ${objectsToRemove.length} objetos del ambiente`);
+    }
+    
+    showEnvironmentInfo() {
+        const environmentObjects = {};
+        
+        this.scene.traverse((object) => {
+            if (object.isMesh && object.name && object.name.startsWith('test_')) {
+                const type = object.name.split('_')[1];
+                environmentObjects[type] = (environmentObjects[type] || 0) + 1;
+            }
+        });
+        
+        let info = '🏙️ Objetos del ambiente:\n';
+        for (const [type, count] of Object.entries(environmentObjects)) {
+            info += `• ${type}: ${count}\n`;
+        }
+        
+        console.log(info);
+        this.showChatMessage(info);
+    }
+    
+    async extractTextures() {
+        try {
+            console.log('📦 Intentando extraer texturas...');
+            this.showChatMessage('📦 Intentando extraer texturas...');
+            
+            // Verificar si existe el archivo RAR
+            const rarPath = '/assets/9btvoxf8n0cg-3dt/textures.rar';
+            const response = await fetch(rarPath, { method: 'HEAD' });
+            
+            if (!response.ok) {
+                throw new Error('Archivo textures.rar no encontrado');
+            }
+            
+            console.log('✅ Archivo textures.rar encontrado');
+            this.showChatMessage('✅ Archivo encontrado. Para extraer:');
+            this.showChatMessage('1. Instala "The Unarchiver" desde Mac App Store');
+            this.showChatMessage('2. Haz doble clic en textures.rar');
+            this.showChatMessage('3. Escribe "cargar ambiente" para recargar');
+            
+        } catch (error) {
+            console.error('❌ Error verificando texturas:', error);
+            this.showChatMessage('❌ Error: ' + error.message);
+        }
+    }
+    
+    async checkTextures() {
+        try {
+            console.log('🔍 Verificando texturas...');
+            this.showChatMessage('🔍 Verificando texturas...');
+            
+            // Verificar si existe la carpeta de texturas
+            const texturePath = '/assets/9btvoxf8n0cg-3dt/textures/';
+            const response = await fetch(texturePath, { method: 'HEAD' });
+            
+            if (response.ok) {
+                console.log('✅ Carpeta de texturas encontrada');
+                this.showChatMessage('✅ Texturas disponibles');
+                this.showChatMessage('Escribe "cargar ambiente" para aplicar');
+            } else {
+                console.log('❌ Carpeta de texturas no encontrada');
+                this.showChatMessage('❌ Texturas no encontradas');
+            }
+            
+        } catch (error) {
+            console.error('❌ Error verificando texturas:', error);
+            this.showChatMessage('❌ Error: ' + error.message);
+        }
+    }
+    
+    diagnoseLoaders() {
+        console.log('🔍 Diagnóstico de loaders...');
+        this.showChatMessage('🔍 Diagnóstico de loaders...');
+        
+        // Verificar importaciones
+        console.log('📦 OBJLoader disponible:', !!OBJLoader);
+        console.log('📦 MTLLoader disponible:', !!MTLLoader);
+        console.log('📦 THREE disponible:', !!THREE);
+        
+        this.showChatMessage(`📦 OBJLoader: ${!!OBJLoader ? '✅' : '❌'}`);
+        this.showChatMessage(`📦 MTLLoader: ${!!MTLLoader ? '✅' : '❌'}`);
+        this.showChatMessage(`📦 THREE: ${!!THREE ? '✅' : '❌'}`);
+        
+        // Verificar constructores
+        try {
+            const testObjLoader = new OBJLoader();
+            console.log('✅ OBJLoader constructor funciona');
+            this.showChatMessage('✅ OBJLoader constructor funciona');
+        } catch (error) {
+            console.error('❌ Error con OBJLoader constructor:', error);
+            this.showChatMessage('❌ Error con OBJLoader constructor');
+        }
+        
+        try {
+            const testMtlLoader = new MTLLoader();
+            console.log('✅ MTLLoader constructor funciona');
+            this.showChatMessage('✅ MTLLoader constructor funciona');
+        } catch (error) {
+            console.error('❌ Error con MTLLoader constructor:', error);
+            this.showChatMessage('❌ Error con MTLLoader constructor');
+        }
+    }
+    
+    checkEnvironmentCollisions() {
+        console.log('🔍 Verificando colisiones del ambiente...');
+        this.showChatMessage('🔍 Verificando colisiones del ambiente...');
+        
+        if (!this.environmentModel) {
+            this.showChatMessage('❌ No hay modelo de ambiente cargado');
+            return;
+        }
+        
+        let collisionCount = 0;
+        let meshCount = 0;
+        
+        this.environmentModel.traverse((child) => {
+            if (child.isMesh) {
+                meshCount++;
+                if (child.userData.isCollisionObject) {
+                    collisionCount++;
+                    console.log('✅ Colisión activa en:', child.name || 'sin nombre');
+                } else {
+                    console.log('❌ Sin colisión en:', child.name || 'sin nombre');
+                }
+            }
+        });
+        
+        console.log(`📊 Total de meshes: ${meshCount}, Con colisiones: ${collisionCount}`);
+        this.showChatMessage(`📊 Meshes: ${meshCount}, Colisiones: ${collisionCount}`);
+        
+        if (collisionCount === 0) {
+            this.showChatMessage('⚠️ ¡No hay colisiones activas!');
+        } else {
+            this.showChatMessage('✅ Colisiones configuradas correctamente');
+        }
     }
     
     createTestObject() {
@@ -383,6 +844,13 @@ export class Game3D {
         this.networkManager.on('onChatMessage', (message) => {
             this.showChatMessage(`${message.playerName}: ${message.message}`);
         });
+        
+        // Eventos del juego (minijuegos)
+        this.networkManager.on('onGameEvent', (event) => {
+            console.log('🎮 Callback onGameEvent ejecutado con evento:', event.type);
+            this.processGameEvent(event);
+        });
+        console.log('✅ Callback onGameEvent registrado');
         
         // Estado del mundo
         this.networkManager.on('onWorldState', (state) => {
@@ -869,7 +1337,7 @@ export class Game3D {
         }
     }
     
-    async generateObject(description) {
+    async generateObject(description, customPosition = null) {
         try {
             // Verificar límite de objetos
             if (this.objects.size >= this.config.maxObjects) {
@@ -886,14 +1354,20 @@ export class Game3D {
                 return;
             }
             
-            // Obtener posición del jugador
-            const playerPosition = this.playerController.getPosition();
-            const cameraDirection = new THREE.Vector3();
-            this.camera.getWorldDirection(cameraDirection);
-            
-            // Posición delante del jugador (a 3 metros de distancia)
-            const spawnPosition = playerPosition.clone().add(cameraDirection.multiplyScalar(3));
-            spawnPosition.y = 1; // Elevar un poco del suelo
+            // Calcular posición de spawn
+            let spawnPosition;
+            if (customPosition) {
+                spawnPosition = new THREE.Vector3(customPosition.x, customPosition.y, customPosition.z);
+            } else {
+                // Obtener posición del jugador
+                const playerPosition = this.playerController.getPosition();
+                const cameraDirection = new THREE.Vector3();
+                this.camera.getWorldDirection(cameraDirection);
+                
+                // Posición delante del jugador (a 3 metros de distancia)
+                spawnPosition = playerPosition.clone().add(cameraDirection.multiplyScalar(3));
+                spawnPosition.y = 1; // Elevar un poco del suelo
+            }
             
             // Usar el objeto parseado y aplicar modificadores
             const finalDescription = this.commandParser.generateDescription(parsedCommand);
@@ -901,6 +1375,16 @@ export class Game3D {
             
             // Crear el objeto en la escena
             const mesh = await this.createMeshFromData(objectData);
+            
+            // Verificar colisiones y encontrar posición libre
+            console.log(`🔍 Verificando colisiones para: ${description}`);
+            console.log(`📍 Posición base: ${spawnPosition.x.toFixed(2)}, ${spawnPosition.y.toFixed(2)}, ${spawnPosition.z.toFixed(2)}`);
+            console.log(`📦 Objetos existentes: ${this.objects.size}`);
+            
+            const freePosition = this.findFreeSpawnPosition(spawnPosition, mesh);
+            console.log(`✅ Posición final: ${freePosition.x.toFixed(2)}, ${freePosition.y.toFixed(2)}, ${freePosition.z.toFixed(2)}`);
+            
+            mesh.position.copy(freePosition);
             
             // Capturar el asset específico usado si es un asset 3D
             let specificAsset = null;
@@ -935,6 +1419,11 @@ export class Game3D {
             };
             
             this.objects.set(objectId, simpleObject);
+            
+            // Registrar obstáculo en el minijuego si está activo
+            if (this.obstacleGame && this.obstacleGame.isActive) {
+                this.obstacleGame.registerObstacle(objectId, description, 'local');
+            }
             
             // Agregar para interacción
             this.playerController.addInteractableObject(simpleObject);
@@ -971,9 +1460,13 @@ export class Game3D {
             
             this.showChatMessage(`🎨 Creado: ${finalDescription}`);
             
+            // Retornar el objectId para que otros sistemas puedan usarlo
+            return objectId;
+            
         } catch (error) {
             console.error('❌ Error al generar objeto:', error);
             this.showChatMessage('❌ Error al crear objeto');
+            return null;
         }
     }
     
@@ -2032,6 +2525,322 @@ export class Game3D {
     }
     
     sendChatMessage(message) {
+        // Procesar comandos del minijuego primero
+        if (this.obstacleGame && this.obstacleGame.processCommand(message, 'local')) {
+            return; // El comando fue procesado por el minijuego
+        }
+        
+        // Comando simple para probar el minijuego
+        if (message.toLowerCase() === 'iniciar juego' || message.toLowerCase() === 'start game') {
+            if (this.simpleTreasureGame) {
+                this.simpleTreasureGame.start();
+                return;
+            }
+        }
+        
+        // Comando para forzar sincronización del minijuego
+        if (message.toLowerCase() === 'sync juego' || message.toLowerCase() === 'sync game') {
+            if (this.simpleTreasureGame && this.simpleTreasureGame.isActive) {
+                console.log('🔄 Forzando sincronización del minijuego...');
+                if (this.simpleTreasureGame.isHost) {
+                    this.simpleTreasureGame.broadcastGameState();
+                } else {
+                    this.simpleTreasureGame.game.networkManager.sendGameEvent({
+                        type: 'treasure_game_request_info',
+                        gameId: this.simpleTreasureGame.gameId
+                    });
+                }
+                return;
+            }
+        }
+        
+        // Comando para probar eventos de red
+        if (message.toLowerCase() === 'test evento' || message.toLowerCase() === 'test event') {
+            console.log('🧪 Enviando evento de prueba...');
+            if (this.networkManager && this.networkManager.isConnected) {
+                this.networkManager.sendGameEvent({
+                    type: 'test_event',
+                    gameId: 'test_' + Date.now(),
+                    message: 'Evento de prueba desde ' + this.networkManager.playerId
+                });
+                this.showChatMessage('🧪 Evento de prueba enviado');
+            } else {
+                this.showChatMessage('❌ No se pudo enviar evento de prueba');
+            }
+            return;
+        }
+        
+        // Comando para verificar estado del host
+        if (message.toLowerCase() === 'estado host' || message.toLowerCase() === 'host status') {
+            if (this.simpleTreasureGame) {
+                const status = {
+                    isActive: this.simpleTreasureGame.isActive,
+                    isHost: this.simpleTreasureGame.isHost,
+                    gameId: this.simpleTreasureGame.gameId,
+                    treasures: this.simpleTreasureGame.treasures.length,
+                    networkConnected: this.networkManager?.isConnected,
+                    playerCount: this.networkManager?.getPlayerCount()
+                };
+                console.log('🏠 Estado del host:', status);
+                this.showChatMessage(`🏠 Host: ${status.isActive ? 'Activo' : 'Inactivo'}, ${status.isHost ? 'Es Host' : 'No es Host'}, Tesoros: ${status.treasures}, Jugadores: ${status.playerCount}`);
+            } else {
+                this.showChatMessage('❌ Minijuego no disponible');
+            }
+            return;
+        }
+        
+        // Comando para forzar envío de evento desde host
+        if (message.toLowerCase() === 'forzar evento' || message.toLowerCase() === 'force event') {
+            if (this.simpleTreasureGame && this.simpleTreasureGame.isActive && this.simpleTreasureGame.isHost) {
+                console.log('🚀 Forzando envío de evento desde host...');
+                this.networkManager.sendGameEvent({
+                    type: 'treasure_game_start',
+                    gameId: this.simpleTreasureGame.gameId,
+                    isHost: true
+                });
+                this.showChatMessage('🚀 Evento forzado enviado desde host');
+            } else {
+                this.showChatMessage('❌ No eres host o el juego no está activo');
+            }
+            return;
+        }
+        
+        // Comando para transmitir gameId desde host
+        if (message.toLowerCase() === 'transmitir id' || message.toLowerCase() === 'broadcast id') {
+            if (this.simpleTreasureGame && this.simpleTreasureGame.isActive && this.simpleTreasureGame.isHost) {
+                console.log('📡 Transmitiendo gameId desde host...');
+                this.networkManager.sendGameEvent({
+                    type: 'treasure_game_id',
+                    gameId: this.simpleTreasureGame.gameId,
+                    isHost: true
+                });
+                this.showChatMessage('📡 GameId transmitido desde host');
+            } else {
+                this.showChatMessage('❌ No eres host o el juego no está activo');
+            }
+            return;
+        }
+        
+        // Comando para enviar evento de prueba específico
+        if (message.toLowerCase() === 'test cliente' || message.toLowerCase() === 'test client') {
+            console.log('🧪 Enviando evento de prueba específico al cliente...');
+            if (this.networkManager && this.networkManager.isConnected) {
+                const players = this.networkManager.getAllPlayers();
+                console.log('👥 Jugadores disponibles:', players);
+                
+                this.networkManager.sendGameEvent({
+                    type: 'test_client_event',
+                    gameId: 'test_' + Date.now(),
+                    message: 'Evento de prueba desde host',
+                    timestamp: Date.now()
+                });
+                this.showChatMessage('🧪 Evento de prueba enviado al cliente');
+            } else {
+                this.showChatMessage('❌ No se pudo enviar evento de prueba');
+            }
+            return;
+        }
+        
+        // Comando para verificar recepción de eventos
+        if (message.toLowerCase() === 'verificar eventos' || message.toLowerCase() === 'check events') {
+            console.log('🔍 Verificando recepción de eventos...');
+            this.showChatMessage('🔍 Verificando eventos... Revisa la consola');
+            
+            // Verificar si hemos recibido algún evento recientemente
+            if (this.networkManager) {
+                console.log('📡 Estado del NetworkManager:', {
+                    isConnected: this.networkManager.isConnected,
+                    playerId: this.networkManager.playerId,
+                    callbacks: Array.from(this.networkManager.callbacks.keys())
+                });
+                
+                // Verificar jugadores y objetos
+                const players = this.networkManager.getAllPlayers();
+                const objects = this.networkManager.getAllObjects();
+                console.log('👥 Jugadores conectados:', players);
+                console.log('📦 Objetos en la red:', objects.length);
+            }
+            return;
+        }
+        
+        // Comando para verificar conexión entre jugadores
+        if (message.toLowerCase() === 'verificar conexion' || message.toLowerCase() === 'check connection') {
+            console.log('🔗 Verificando conexión entre jugadores...');
+            this.showChatMessage('🔗 Verificando conexión... Revisa la consola');
+            
+            if (this.networkManager) {
+                const playerCount = this.networkManager.getPlayerCount();
+                const players = this.networkManager.getAllPlayers();
+                
+                console.log('🔗 Información de conexión:', {
+                    miPlayerId: this.networkManager.playerId,
+                    totalJugadores: playerCount,
+                    jugadores: players.map(p => ({ id: p.id, name: p.name }))
+                });
+                
+                if (playerCount === 0) {
+                    this.showChatMessage('❌ No hay otros jugadores conectados');
+                } else {
+                    this.showChatMessage(`✅ ${playerCount} jugador(es) conectado(s)`);
+                }
+            }
+            return;
+        }
+        
+        // Comando para forzar reconexión
+        if (message.toLowerCase() === 'reconectar' || message.toLowerCase() === 'reconnect') {
+            console.log('🔄 Forzando reconexión...');
+            this.showChatMessage('🔄 Reconectando...');
+            
+            if (this.networkManager) {
+                this.networkManager.disconnect();
+                setTimeout(() => {
+                    this.networkManager.connect();
+                    this.showChatMessage('✅ Reconexión completada');
+                }, 1000);
+            }
+            return;
+        }
+        
+        // Comando para forzar unión al juego (para clientes)
+        if (message.toLowerCase() === 'unirse juego' || message.toLowerCase() === 'join game') {
+            if (this.simpleTreasureGame && !this.simpleTreasureGame.isActive) {
+                console.log('🎯 Forzando unión al juego...');
+                // Buscar un gameId válido (podríamos obtenerlo del host)
+                const gameId = 'treasure_game_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                this.simpleTreasureGame.joinGame(gameId);
+                this.showChatMessage('🎯 Unión forzada al juego');
+            } else {
+                this.showChatMessage('❌ Ya estás en un juego o minijuego no disponible');
+            }
+            return;
+        }
+        
+        // Comando para escuchar eventos (para clientes)
+        if (message.toLowerCase() === 'escuchar eventos' || message.toLowerCase() === 'listen events') {
+            console.log('🎧 Activando escucha de eventos...');
+            this.showChatMessage('🎧 Escuchando eventos del host...');
+            
+            // Verificar si hay un host activo
+            if (this.networkManager) {
+                const players = this.networkManager.getAllPlayers();
+                console.log('👥 Jugadores conectados:', players);
+                
+                if (players.length > 0) {
+                    this.showChatMessage(`🎧 Escuchando eventos de ${players.length} jugador(es)`);
+                } else {
+                    this.showChatMessage('❌ No hay jugadores para escuchar');
+                }
+            }
+            return;
+        }
+        
+        // Comando para recargar ambiente 3D
+        if (message.toLowerCase() === 'cargar ambiente' || message.toLowerCase() === 'load environment') {
+            console.log('🏙️ Recargando ambiente 3D...');
+            this.showChatMessage('🏙️ Recargando ambiente 3D...');
+            
+            // Remover modelo anterior si existe
+            if (this.environmentModel) {
+                this.scene.remove(this.environmentModel);
+                this.environmentModel = null;
+            }
+            
+            // Cargar nuevo ambiente
+            this.loadEnvironment3D().then(() => {
+                this.showChatMessage('✅ Ambiente 3D recargado exitosamente');
+            }).catch((error) => {
+                this.showChatMessage('❌ Error recargando ambiente 3D');
+                console.error('❌ Error recargando ambiente:', error);
+            });
+            return;
+        }
+        
+        // Comando para ajustar escala del ambiente
+        if (message.toLowerCase().startsWith('escala ambiente ')) {
+            const scale = parseFloat(message.split(' ')[2]);
+            if (this.environmentModel && !isNaN(scale)) {
+                this.environmentModel.scale.set(scale, scale, scale);
+                this.showChatMessage(`📏 Escala del ambiente ajustada a: ${scale}`);
+                console.log('📏 Escala ajustada:', scale);
+            } else {
+                this.showChatMessage('❌ Ambiente no disponible o escala inválida');
+            }
+            return;
+        }
+        
+        // Comando para escalas predefinidas
+        if (message.toLowerCase() === 'ambiente pequeño') {
+            if (this.environmentModel) {
+                this.environmentModel.scale.set(2, 2, 2);
+                this.showChatMessage('📏 Ambiente configurado como pequeño');
+            }
+            return;
+        }
+        
+        if (message.toLowerCase() === 'ambiente normal') {
+            if (this.environmentModel) {
+                this.environmentModel.scale.set(5, 5, 5);
+                this.showChatMessage('📏 Ambiente configurado como normal');
+            }
+            return;
+        }
+        
+        if (message.toLowerCase() === 'ambiente grande') {
+            if (this.environmentModel) {
+                this.environmentModel.scale.set(10, 10, 10);
+                this.showChatMessage('📏 Ambiente configurado como grande');
+            }
+            return;
+        }
+        
+        // Comando para crear ambiente de prueba
+        if (message.toLowerCase() === 'ambiente prueba' || message.toLowerCase() === 'test environment') {
+            this.createTestEnvironment();
+            return;
+        }
+        
+        // Comando para limpiar solo objetos del ambiente de prueba
+        if (message.toLowerCase() === 'limpiar ambiente' || message.toLowerCase() === 'clear environment') {
+            this.clearTestEnvironment();
+            return;
+        }
+        
+        // Comando para mostrar información del ambiente
+        if (message.toLowerCase() === 'info ambiente' || message.toLowerCase() === 'environment info') {
+            this.showEnvironmentInfo();
+            return;
+        }
+        
+        // Comando para extraer texturas
+        if (message.toLowerCase() === 'extraer texturas' || message.toLowerCase() === 'extract textures') {
+            this.extractTextures();
+            return;
+        }
+        
+        // Comando para verificar texturas
+        if (message.toLowerCase() === 'verificar texturas' || message.toLowerCase() === 'check textures') {
+            this.checkTextures();
+            return;
+        }
+        
+        // Comando para diagnosticar loaders
+        if (message.toLowerCase() === 'diagnosticar loaders' || message.toLowerCase() === 'diagnose loaders') {
+            this.diagnoseLoaders();
+            return;
+        }
+        
+        // Comando para verificar colisiones del ambiente
+        if (message.toLowerCase() === 'verificar colisiones' || message.toLowerCase() === 'check collisions') {
+            this.checkEnvironmentCollisions();
+            return;
+        }
+        
+        // Procesar comandos del minijuego simple
+        if (this.simpleTreasureGame && this.simpleTreasureGame.processCommand && this.simpleTreasureGame.processCommand(message, 'local')) {
+            return; // El comando fue procesado por el minijuego
+        }
+        
         if (this.isMultiplayer && this.networkManager) {
             this.networkManager.sendChatMessage(message);
         }
@@ -2228,6 +3037,285 @@ export class Game3D {
     interactWithObject(object) {
         // Función para interactuar con objetos
         // Por ahora solo para evitar errores
+    }
+    
+    // Sistema de colisiones
+    checkCollision(newPosition, newMesh, excludeObjectId = null) {
+        const collisionThreshold = 1.0; // Aumentar threshold para ser más estricto
+        
+        console.log(`🔍 Verificando colisión en posición: ${newPosition.x.toFixed(2)}, ${newPosition.y.toFixed(2)}, ${newPosition.z.toFixed(2)}`);
+        console.log(`📦 Objetos a verificar: ${this.objects.size}`);
+        
+        for (const [id, object] of this.objects) {
+            // Saltar el objeto que se está moviendo
+            if (excludeObjectId && id === excludeObjectId) {
+                console.log(`⏭️ Saltando objeto propio: ${id}`);
+                continue;
+            }
+            
+            if (!object.mesh || !object.mesh.position) {
+                console.log(`⚠️ Objeto sin mesh válido: ${id}`);
+                continue;
+            }
+            
+            // Calcular distancia entre centros
+            const distance = newPosition.distanceTo(object.mesh.position);
+            
+            // Obtener tamaños aproximados de ambos objetos
+            const newSize = this.getObjectSize(newMesh);
+            const existingSize = this.getObjectSize(object.mesh);
+            
+            // Distancia mínima requerida (suma de radios + threshold)
+            const minDistance = (newSize + existingSize) / 2 + collisionThreshold;
+            
+            console.log(`📏 Comparando con ${object.name || object.id}: distancia=${distance.toFixed(2)}m, mínima=${minDistance.toFixed(2)}m, tamaños=${newSize.toFixed(2)}/${existingSize.toFixed(2)}`);
+            
+            if (distance < minDistance) {
+                console.log(`🚫 Colisión detectada: ${object.name || object.id} (distancia: ${distance.toFixed(2)}m, mínima: ${minDistance.toFixed(2)}m)`);
+                return {
+                    colliding: true,
+                    object: object,
+                    distance: distance,
+                    minDistance: minDistance
+                };
+            }
+        }
+        
+        // Verificar colisión con objetos del ambiente
+        if (this.environmentModel) {
+            this.environmentModel.traverse((child) => {
+                if (child.isMesh && child.userData.isCollisionObject) {
+                    const distance = newPosition.distanceTo(child.position);
+                    const newSize = this.getObjectSize(newMesh);
+                    const environmentSize = this.getObjectSize(child);
+                    const minDistance = (newSize + environmentSize) / 2 + collisionThreshold;
+                    
+                    console.log(`🏗️ Comparando con ambiente ${child.name || 'sin nombre'}: distancia=${distance.toFixed(2)}m, mínima=${minDistance.toFixed(2)}m`);
+                    
+                    if (distance < minDistance) {
+                        console.log(`🚫 Colisión con ambiente detectada: ${child.name || 'sin nombre'} (distancia: ${distance.toFixed(2)}m, mínima: ${minDistance.toFixed(2)}m)`);
+                        return {
+                            colliding: true,
+                            object: { name: child.name || 'ambiente', mesh: child },
+                            distance: distance,
+                            minDistance: minDistance
+                        };
+                    }
+                }
+            });
+        }
+        
+        console.log(`✅ Sin colisiones detectadas`);
+        return { colliding: false };
+    }
+    
+    // Obtener tamaño aproximado de un objeto
+    getObjectSize(mesh) {
+        if (!mesh) {
+            console.log(`⚠️ Mesh nulo, usando tamaño por defecto: 1.0`);
+            return 1.0;
+        }
+        
+        try {
+            // Usar boundingBox si está disponible
+            const box = new THREE.Box3().setFromObject(mesh);
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            
+            // Retornar el tamaño más grande
+            const maxSize = Math.max(size.x, size.y, size.z);
+            console.log(`📏 Tamaño calculado para ${mesh.name || 'objeto'}: ${maxSize.toFixed(2)} (${size.x.toFixed(2)}x${size.y.toFixed(2)}x${size.z.toFixed(2)})`);
+            
+            // Asegurar un tamaño mínimo
+            return Math.max(maxSize, 0.5);
+        } catch (error) {
+            console.error(`❌ Error calculando tamaño:`, error);
+            return 1.0;
+        }
+    }
+    
+    // Verificar colisión con el jugador
+    checkPlayerCollision(position, mesh) {
+        if (!this.playerController) return false;
+        
+        const playerPosition = this.playerController.getPosition();
+        const distance = position.distanceTo(playerPosition);
+        
+        // Obtener tamaños aproximados
+        const objectSize = this.getObjectSize(mesh);
+        const playerSize = 1.0; // Tamaño aproximado del jugador
+        
+        // Distancia mínima requerida
+        const minDistance = (objectSize + playerSize) / 2 + 0.5; // 0.5m de margen
+        
+        if (distance < minDistance) {
+            console.log(`🚫 Colisión con jugador detectada (distancia: ${distance.toFixed(2)}m, mínima: ${minDistance.toFixed(2)}m)`);
+            return true;
+        }
+        
+        return false;
+    }
+    
+    // Encontrar posición libre para spawn
+    findFreeSpawnPosition(basePosition, mesh, maxAttempts = 15) {
+        const directions = [
+            new THREE.Vector3(1, 0, 0),   // Derecha
+            new THREE.Vector3(-1, 0, 0),  // Izquierda
+            new THREE.Vector3(0, 0, 1),   // Adelante
+            new THREE.Vector3(0, 0, -1),  // Atrás
+            new THREE.Vector3(1, 0, 1),   // Diagonal
+            new THREE.Vector3(-1, 0, 1),  // Diagonal
+            new THREE.Vector3(1, 0, -1),  // Diagonal
+            new THREE.Vector3(-1, 0, -1), // Diagonal
+            new THREE.Vector3(2, 0, 0),   // Más lejos
+            new THREE.Vector3(-2, 0, 0),  // Más lejos
+            new THREE.Vector3(0, 0, 2),   // Más lejos
+            new THREE.Vector3(0, 0, -2)   // Más lejos
+        ];
+        
+        console.log(`🔍 Buscando posición libre para spawn (${maxAttempts} intentos)`);
+        
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            // Intentar posición base
+            if (attempt === 0) {
+                console.log(`📍 Intento ${attempt + 1}: Posición base`);
+                const collision = this.checkCollision(basePosition, mesh);
+                const playerCollision = this.checkPlayerCollision(basePosition, mesh);
+                if (!collision.colliding && !playerCollision) {
+                    console.log(`✅ Posición base libre encontrada`);
+                    return basePosition.clone();
+                }
+            }
+            
+            // Intentar posiciones alternativas
+            const direction = directions[attempt % directions.length];
+            const distance = 1.5 + (attempt * 0.8); // Aumentar distancia más agresivamente
+            const newPosition = basePosition.clone().add(direction.multiplyScalar(distance));
+            
+            console.log(`📍 Intento ${attempt + 1}: ${direction.x},${direction.y},${direction.z} * ${distance.toFixed(1)} = ${newPosition.x.toFixed(2)},${newPosition.y.toFixed(2)},${newPosition.z.toFixed(2)}`);
+            
+            const collision = this.checkCollision(newPosition, mesh);
+            const playerCollision = this.checkPlayerCollision(newPosition, mesh);
+            if (!collision.colliding && !playerCollision) {
+                console.log(`✅ Posición libre encontrada en intento ${attempt + 1}`);
+                return newPosition;
+            }
+        }
+        
+        console.warn('⚠️ No se encontró posición libre después de todos los intentos');
+        // Intentar una posición muy lejana como último recurso
+        const lastResort = basePosition.clone().add(new THREE.Vector3(5, 0, 5));
+        console.log(`🆘 Usando posición de último recurso: ${lastResort.x.toFixed(2)}, ${lastResort.y.toFixed(2)}, ${lastResort.z.toFixed(2)}`);
+        return lastResort;
+    }
+    
+    // Debug del sistema de colisiones
+    debugCollisions() {
+        console.log('🔍 === DEBUG SISTEMA DE COLISIONES ===');
+        console.log(`📦 Total de objetos: ${this.objects.size}`);
+        
+        for (const [id, object] of this.objects) {
+            if (object.mesh) {
+                const size = this.getObjectSize(object.mesh);
+                console.log(`  ${id}: ${object.name || 'Sin nombre'} - Pos: ${object.mesh.position.x.toFixed(2)}, ${object.mesh.position.y.toFixed(2)}, ${object.mesh.position.z.toFixed(2)} - Tamaño: ${size.toFixed(2)}`);
+            }
+        }
+        
+        if (this.playerController) {
+            const playerPos = this.playerController.getPosition();
+            console.log(`👤 Jugador: ${playerPos.x.toFixed(2)}, ${playerPos.y.toFixed(2)}, ${playerPos.z.toFixed(2)}`);
+        }
+        
+        console.log('🔍 === FIN DEBUG ===');
+    }
+    
+    // Probar colisiones entre dos objetos específicos
+    testCollisionBetweenObjects(objectId1, objectId2) {
+        const obj1 = this.objects.get(objectId1);
+        const obj2 = this.objects.get(objectId2);
+        
+        if (!obj1 || !obj2) {
+            console.log('❌ Objetos no encontrados');
+            return;
+        }
+        
+        const distance = obj1.mesh.position.distanceTo(obj2.mesh.position);
+        const size1 = this.getObjectSize(obj1.mesh);
+        const size2 = this.getObjectSize(obj2.mesh);
+        const minDistance = (size1 + size2) / 2 + 1.0; // Usar threshold de 1.0
+        
+        console.log(`🔍 === PRUEBA DE COLISIÓN ===`);
+        console.log(`📦 Objeto 1: ${obj1.name || obj1.id} - Tamaño: ${size1.toFixed(2)}`);
+        console.log(`📦 Objeto 2: ${obj2.name || obj2.id} - Tamaño: ${size2.toFixed(2)}`);
+        console.log(`📏 Distancia: ${distance.toFixed(2)}m`);
+        console.log(`📏 Mínima requerida: ${minDistance.toFixed(2)}m`);
+        console.log(`🚫 ¿Colisión?: ${distance < minDistance ? 'SÍ' : 'NO'}`);
+        console.log(`🔍 === FIN PRUEBA ===`);
+    }
+    
+    // Procesar eventos del juego (minijuegos)
+    processGameEvent(event) {
+        console.log('🎮 Evento del juego recibido:', event);
+        console.log('🎮 Tipo de evento:', event.type);
+        console.log('🎮 GameId del evento:', event.gameId);
+        
+        // Procesar eventos del minijuego de tesoros
+        if (this.simpleTreasureGame && this.simpleTreasureGame.processNetworkEvent) {
+            console.log('🎮 Procesando con SimpleTreasureGame...');
+            if (this.simpleTreasureGame.processNetworkEvent(event)) {
+                console.log('✅ Evento procesado por SimpleTreasureGame');
+                return; // Evento procesado por el minijuego
+            } else {
+                console.log('❌ SimpleTreasureGame no procesó el evento');
+            }
+        } else {
+            console.log('❌ SimpleTreasureGame no disponible');
+        }
+        
+        // Procesar eventos del minijuego de obstáculos
+        if (this.obstacleGame && this.obstacleGame.processNetworkEvent) {
+            if (this.obstacleGame.processNetworkEvent(event)) {
+                return; // Evento procesado por el minijuego
+            }
+        }
+    }
+    
+    // Método de emergencia para restaurar la escena básica
+    emergencyRestore() {
+        console.log('🚨 === RESTAURACIÓN DE EMERGENCIA ===');
+        
+        try {
+            // Verificar que los componentes básicos existan
+            if (!this.scene || !this.camera || !this.renderer) {
+                console.error('❌ Componentes básicos faltantes, reiniciando...');
+                this.init();
+                return;
+            }
+            
+            // Restaurar iluminación básica
+            this.setupLighting();
+            
+            // Restaurar suelo
+            this.createGround();
+            
+            // Restaurar posición del jugador
+            if (this.playerController) {
+                this.playerController.resetPosition();
+            }
+            
+            // Limpiar objetos problemáticos
+            this.objects.clear();
+            
+            // Forzar renderizado
+            this.renderer.render(this.scene, this.camera);
+            
+            console.log('✅ Escena restaurada correctamente');
+            
+        } catch (error) {
+            console.error('❌ Error en restauración de emergencia:', error);
+            // Intentar reinicio completo
+            this.init();
+        }
     }
 }
 

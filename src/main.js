@@ -17,6 +17,10 @@ class Dreams3DGame {
             // Inicializar el juego 3D
             this.game = new Game3D(container);
             
+            // Hacer la instancia globalmente accesible
+            window.game3D = this.game;
+            console.log('🎮 Instancia del juego asignada a window.game3D:', window.game3D);
+            
             // Configurar event listeners del UI original
             this.setupUIEvents();
             

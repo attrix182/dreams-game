@@ -139,6 +139,12 @@ export class NetworkManager {
             this.trigger('onChatMessage', message);
         });
         
+        // Eventos del juego (minijuegos)
+        this.socket.on('game:event', (event) => {
+            console.log('📡 Evento del juego recibido en NetworkManager:', event.type, 'gameId:', event.gameId);
+            this.trigger('onGameEvent', event);
+        });
+        
         // Estado del mundo
         this.socket.on('world:state', (state) => {
             this.trigger('onWorldState', state);
@@ -238,6 +244,15 @@ export class NetworkManager {
         }
     }
     
+    sendGameEvent(eventData) {
+        if (this.isConnected && this.socket) {
+            console.log('📡 Enviando evento del juego:', eventData.type, 'gameId:', eventData.gameId);
+            this.socket.emit('game:event', eventData);
+        } else {
+            console.log('❌ No se pudo enviar evento del juego: connected=', this.isConnected, 'socket=', !!this.socket);
+        }
+    }
+    
     // Callbacks
     on(event, callback) {
         this.callbacks.set(event, callback);
@@ -250,7 +265,10 @@ export class NetworkManager {
     // Método helper para disparar eventos
     trigger(event, data) {
         if (this.callbacks.has(event)) {
+          //  console.log('📡 Disparando evento:', event, 'con datos:', data?.type || 'sin tipo');
             this.callbacks.get(event)(data);
+        } else {
+            //console.log('❌ No hay callback registrado para evento:', event);
         }
     }
     

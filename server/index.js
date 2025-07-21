@@ -105,6 +105,11 @@ io.on('connection', (socket) => {
     socket.on('chat:message', (data) => {
         gameServer.broadcastChat(socket.id, data);
     });
+    
+    socket.on('game:event', (data) => {
+        console.log('📡 Servidor recibió evento del juego:', data.type, 'de', socket.id);
+        gameServer.broadcastGameEvent(socket.id, data);
+    });
 });
 
 const PORT = process.env.PORT || 3001;
