@@ -13,6 +13,9 @@ export class Game3D {
         this.config = {
             width: window.innerWidth,
             height: window.innerHeight,
+            fov: 75,
+            near: 0.1,
+            far: 1000,
             antialias: false, // Desactivar antialiasing para mejor rendimiento
             shadows: false, // Desactivar sombras para mejor rendimiento
             maxObjects: 50, // Límite de objetos en cliente
@@ -80,7 +83,6 @@ export class Game3D {
     
     async init() {
         try {
-            
             // Crear escena
             this.scene = new THREE.Scene();
             this.scene.background = new THREE.Color(0x87CEEB); // Cielo azul claro
@@ -93,15 +95,23 @@ export class Game3D {
                 this.config.far
             );
             
+            // NO posicionar la cámara aquí, dejar que PlayerController lo haga
+            
+            // Buscar canvas
+            const canvas = this.container.querySelector('#canvas');
+            
+            if (!canvas) {
+                throw new Error('Canvas no encontrado');
+            }
+            
             // Crear renderer
             this.renderer = new THREE.WebGLRenderer({ 
                 antialias: true,
-                canvas: this.container.querySelector('#canvas') // Usar canvas existente
+                canvas: canvas
             });
             this.renderer.setSize(this.config.width, this.config.height);
             this.renderer.shadowMap.enabled = true;
             this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            // No agregar al DOM porque ya existe
             
             // Configurar iluminación
             this.setupLighting();
@@ -129,6 +139,9 @@ export class Game3D {
             // Configurar multijugador
             this.setupMultiplayer();
             
+            // Marcar como inicializado
+            this.isInitialized = true;
+            
             // Iniciar loop de renderizado
             this.animate();
             
@@ -140,12 +153,12 @@ export class Game3D {
     
     setupLighting() {
         // Luz ambiental más brillante
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Más brillante y blanca
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
         this.scene.add(ambientLight);
         
         // Luz direccional (sol) más intensa
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2); // Más intensa
-        directionalLight.position.set(50, 100, 50); // Más alta para mejor iluminación
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        directionalLight.position.set(50, 100, 50);
         directionalLight.castShadow = true;
         directionalLight.shadow.mapSize.width = 2048;
         directionalLight.shadow.mapSize.height = 2048;
@@ -158,24 +171,74 @@ export class Game3D {
         this.scene.add(directionalLight);
         
         // Luz adicional desde el frente para mejor visibilidad
-        const frontLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        const frontLight = new THREE.DirectionalLight(0xffffff, 0.8);
         frontLight.position.set(0, 50, 100);
         this.scene.add(frontLight);
+        
+        // Luz adicional desde arriba
+        const topLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        topLight.position.set(0, 100, 0);
+        this.scene.add(topLight);
     }
     
     createGround() {
-        // Crear suelo simple y más visible
-        const groundGeometry = new THREE.PlaneGeometry(100, 100);
+        // Crear suelo más grande y visible
+        const groundGeometry = new THREE.PlaneGeometry(200, 200);
         const groundMaterial = new THREE.MeshLambertMaterial({ 
-            color: 0x90EE90, // Verde más claro y brillante
-            side: THREE.DoubleSide // Visible desde ambos lados
+            color: 0x90EE90,
+            side: THREE.DoubleSide
         });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        ground.rotation.x = -Math.PI / 2; // Rotar para que esté horizontal
-        ground.position.y = 0; // Asegurar que esté en Y=0
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.1;
         ground.receiveShadow = true;
         this.scene.add(ground);
         
+        // Agregar un suelo adicional de respaldo (más pequeño)
+        const backupGroundGeometry = new THREE.PlaneGeometry(50, 50);
+        const backupGroundMaterial = new THREE.MeshLambertMaterial({ 
+            color: 0x90EE90,
+            side: THREE.DoubleSide
+        });
+        const backupGround = new THREE.Mesh(backupGroundGeometry, backupGroundMaterial);
+        backupGround.rotation.x = -Math.PI / 2;
+        backupGround.position.y = 0;
+        backupGround.receiveShadow = true;
+        this.scene.add(backupGround);
+    }
+    
+    createTestObject() {
+        console.log('🔍 Creando objeto de prueba...');
+        
+        // Crear un cubo rojo grande y visible
+        const geometry = new THREE.BoxGeometry(2, 2, 2);
+        const material = new THREE.MeshLambertMaterial({ 
+            color: 0xff0000, // Rojo brillante
+            transparent: true,
+            opacity: 0.9
+        });
+        const cube = new THREE.Mesh(geometry, material);
+        cube.position.set(0, 1, 0); // En el centro, sobre el suelo
+        cube.castShadow = true;
+        cube.receiveShadow = true;
+        this.scene.add(cube);
+        
+        console.log('✅ Cubo de prueba creado en posición:', cube.position);
+        
+        // Crear una esfera azul
+        const sphereGeometry = new THREE.SphereGeometry(1, 16, 16);
+        const sphereMaterial = new THREE.MeshLambertMaterial({ 
+            color: 0x0000ff, // Azul brillante
+            transparent: true,
+            opacity: 0.9
+        });
+        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        sphere.position.set(5, 1, 0); // A la derecha del cubo
+        sphere.castShadow = true;
+        sphere.receiveShadow = true;
+        this.scene.add(sphere);
+        
+        console.log('✅ Esfera de prueba creada en posición:', sphere.position);
     }
     
     setupPlayerControllerCallbacks() {
@@ -399,8 +462,6 @@ export class Game3D {
                 return; // Ya existe, no crear duplicado
             }
             
-            console.log('🎨 Creando objeto desde red:', objectData);
-            
             // Crear datos del objeto basados en la información del servidor
             const analysis = {
                 type: objectData.type || 'cube',
@@ -473,8 +534,6 @@ export class Game3D {
             
             // Agregar para interacción
             this.playerController.addInteractableObject(simpleObject);
-            
-            console.log('✅ Objeto creado desde red exitosamente:', objectData.name);
             
         } catch (error) {
             console.error('❌ Error al crear objeto desde red:', error);
@@ -916,56 +975,147 @@ export class Game3D {
     analyzeAndCreateObject(description, position) {
         const lowerDesc = description.toLowerCase();
         
-        // Análisis básico de la descripción
+        // Análisis avanzado de la descripción
         const analysis = {
             type: 'cube',
             size: { x: 1, y: 1, z: 1 },
             color: this.generateRandomColor(),
             material: 'basic',
-            effects: []
+            effects: [],
+            complexity: 'medium',
+            texture: null,
+            animation: null
         };
         
-        // Detectar tipo de objeto basado en palabras clave
-        if (lowerDesc.includes('esfera') || lowerDesc.includes('sphere') || lowerDesc.includes('bola') || lowerDesc.includes('ball')) {
-            analysis.type = 'sphere';
-        } else if (lowerDesc.includes('cilindro') || lowerDesc.includes('cylinder') || lowerDesc.includes('tubo') || lowerDesc.includes('tube')) {
-            analysis.type = 'cylinder';
-        } else if (lowerDesc.includes('cono') || lowerDesc.includes('cone') || lowerDesc.includes('pirámide') || lowerDesc.includes('pyramid')) {
-            analysis.type = 'cone';
-        } else if (lowerDesc.includes('toro') || lowerDesc.includes('torus') || lowerDesc.includes('donut') || lowerDesc.includes('anillo')) {
-            analysis.type = 'torus';
-        } else if (lowerDesc.includes('árbol') || lowerDesc.includes('tree') || lowerDesc.includes('planta')) {
-            analysis.type = 'tree';
-        } else if (lowerDesc.includes('casa') || lowerDesc.includes('house') || lowerDesc.includes('edificio')) {
-            analysis.type = 'house';
-        } else if (lowerDesc.includes('coche') || lowerDesc.includes('car') || lowerDesc.includes('auto')) {
-            analysis.type = 'car';
-        } else if (lowerDesc.includes('dragón') || lowerDesc.includes('dragon')) {
-            analysis.type = 'dragon';
-        } else if (lowerDesc.includes('cristal') || lowerDesc.includes('crystal')) {
-            analysis.type = 'crystal';
-        } else if (lowerDesc.includes('flor') || lowerDesc.includes('flower')) {
-            analysis.type = 'flower';
-        } else if (lowerDesc.includes('roca') || lowerDesc.includes('rock') || lowerDesc.includes('piedra')) {
-            analysis.type = 'rock';
-        } else if (lowerDesc.includes('robot') || lowerDesc.includes('androide')) {
-            analysis.type = 'robot';
-        } else if (lowerDesc.includes('nave') || lowerDesc.includes('spaceship') || lowerDesc.includes('cohete')) {
-            analysis.type = 'spaceship';
-        } else if (lowerDesc.includes('castillo') || lowerDesc.includes('castle')) {
-            analysis.type = 'castle';
-        } else if (lowerDesc.includes('puente') || lowerDesc.includes('bridge')) {
-            analysis.type = 'bridge';
-        } else if (lowerDesc.includes('torre') || lowerDesc.includes('tower')) {
-            analysis.type = 'tower';
-        } else if (lowerDesc.includes('fuego') || lowerDesc.includes('fire') || lowerDesc.includes('llama')) {
-            analysis.type = 'fire';
-        } else if (lowerDesc.includes('hielo') || lowerDesc.includes('ice') || lowerDesc.includes('nieve')) {
-            analysis.type = 'ice';
-        } else if (lowerDesc.includes('agua') || lowerDesc.includes('water') || lowerDesc.includes('río')) {
-            analysis.type = 'water';
+        // Sistema expandido de detección de tipos (50+ categorías)
+        const typePatterns = {
+            // NATURALEZA
+            'tree': ['árbol', 'tree', 'planta', 'roble', 'pino', 'palmera', 'sauce', 'cedro', 'abeto', 'olivo'],
+            'flower': ['flor', 'flower', 'rosa', 'tulipán', 'margarita', 'girasol', 'lirio', 'orquídea', 'crisantemo'],
+            'rock': ['roca', 'rock', 'piedra', 'peña', 'montaña', 'colina', 'acantilado', 'guijarro'],
+            'water': ['agua', 'water', 'río', 'lago', 'mar', 'océano', 'cascada', 'fuente', 'estanque', 'arroyo'],
+            
+            // CONSTRUCCIONES
+            'house': ['casa', 'house', 'hogar', 'vivienda', 'cabaña', 'chalet', 'mansión', 'palacio', 'castillo'],
+            'tower': ['torre', 'tower', 'campanario', 'minarete', 'faro', 'observatorio', 'fortaleza'],
+            'bridge': ['puente', 'bridge', 'viaducto', 'pasarela', 'acueducto'],
+            'wall': ['muro', 'wall', 'pared', 'valla', 'empalizada', 'fortificación'],
+            'door': ['puerta', 'door', 'portal', 'entrada', 'portón', 'verja'],
+            'window': ['ventana', 'window', 'vidriera', 'lucernario', 'ojo de buey'],
+            
+            // VEHÍCULOS
+            'car': ['coche', 'car', 'auto', 'automóvil', 'sedán', 'deportivo', 'camión', 'furgoneta'],
+            'airplane': ['avión', 'airplane', 'aeroplano', 'jet', 'helicóptero', 'dirigible', 'globo'],
+            'ship': ['barco', 'ship', 'navío', 'velero', 'yate', 'submarino', 'bote', 'canoa'],
+            'train': ['tren', 'train', 'locomotora', 'vagón', 'metro', 'tranvía'],
+            'bicycle': ['bicicleta', 'bicycle', 'bike', 'moto', 'motocicleta', 'scooter'],
+            'spaceship': ['nave', 'spaceship', 'cohete', 'satélite', 'estación espacial', 'ovni'],
+            
+            // ANIMALES
+            'mammal': ['mamífero', 'mammal', 'perro', 'gato', 'caballo', 'vaca', 'cerdo', 'oveja', 'conejo'],
+            'bird': ['ave', 'bird', 'pájaro', 'águila', 'halcón', 'búho', 'cuervo', 'paloma', 'loro'],
+            'fish': ['pez', 'fish', 'tiburón', 'ballena', 'delfín', 'trucha', 'salmón', 'atún'],
+            'reptile': ['reptil', 'reptile', 'serpiente', 'lagarto', 'tortuga', 'cocodrilo', 'iguana'],
+            'dragon': ['dragón', 'dragon', 'wyvern', 'serpiente alada', 'bestia mítica'],
+            'unicorn': ['unicornio', 'unicorn', 'caballo mágico', 'criatura mítica'],
+            
+            // OBJETOS MÁGICOS
+            'crystal': ['cristal', 'crystal', 'gema', 'joya', 'diamante', 'rubí', 'esmeralda', 'zafiro'],
+            'wand': ['varita', 'wand', 'bastón', 'cetro', 'báculo', 'cayado'],
+            'potion': ['poción', 'potion', 'elixir', 'brebaje', 'tintura', 'medicina'],
+            'scroll': ['pergamino', 'scroll', 'libro', 'tomo', 'grimorio', 'enciclopedia'],
+            'orb': ['orbe', 'orb', 'esfera mágica', 'bola de cristal', 'globo'],
+            
+            // MUEBLES
+            'chair': ['silla', 'chair', 'asiento', 'taburete', 'sofá', 'butaca', 'trono'],
+            'table': ['mesa', 'table', 'escritorio', 'mostrador', 'mesita', 'pedestal'],
+            'bed': ['cama', 'bed', 'lecho', 'hamaca', 'colchón', 'litera'],
+            'cabinet': ['armario', 'cabinet', 'gabinete', 'estantería', 'biblioteca', 'cómoda'],
+            'lamp': ['lámpara', 'lamp', 'farol', 'linterna', 'candelabro', 'vela'],
+            
+            // INSTRUMENTOS
+            'piano': ['piano', 'teclado', 'órgano', 'sintetizador', 'acordeón'],
+            'guitar': ['guitarra', 'guitar', 'violín', 'viola', 'cello', 'contrabajo'],
+            'drum': ['tambor', 'drum', 'batería', 'timbal', 'bongo', 'pandereta'],
+            'flute': ['flauta', 'flute', 'clarinete', 'saxofón', 'trompeta', 'trombón'],
+            
+            // HERRAMIENTAS
+            'hammer': ['martillo', 'hammer', 'mazo', 'machacador', 'pilon'],
+            'axe': ['hacha', 'axe', 'machete', 'espada', 'daga', 'cuchillo'],
+            'saw': ['sierra', 'saw', 'serrucho', 'cortador', 'tijera'],
+            'drill': ['taladro', 'drill', 'perforador', 'broca', 'destornillador'],
+            
+            // TECNOLOGÍA
+            'computer': ['computadora', 'computer', 'ordenador', 'laptop', 'tablet', 'smartphone'],
+            'robot': ['robot', 'androide', 'autómata', 'cyborg', 'dron'],
+            'screen': ['pantalla', 'screen', 'monitor', 'televisor', 'proyector'],
+            'console': ['consola', 'console', 'controlador', 'joystick', 'gamepad'],
+            
+            // ALIMENTOS
+            'fruit': ['fruta', 'fruit', 'manzana', 'naranja', 'plátano', 'uva', 'fresa'],
+            'cake': ['pastel', 'cake', 'torta', 'galleta', 'pan', 'bollo', 'dulce'],
+            'drink': ['bebida', 'drink', 'agua', 'leche', 'jugo', 'refresco', 'café'],
+            
+            // FORMAS GEOMÉTRICAS
+            'sphere': ['esfera', 'sphere', 'bola', 'globo', 'pelota', 'mármol'],
+            'cube': ['cubo', 'cube', 'caja', 'dado', 'bloque', 'ladrillo'],
+            'cylinder': ['cilindro', 'cylinder', 'tubo', 'pilar', 'columna', 'poste'],
+            'cone': ['cono', 'cone', 'pirámide', 'campana', 'embudo'],
+            'torus': ['toro', 'torus', 'donut', 'anillo', 'aro', 'rosquilla'],
+            'pyramid': ['pirámide', 'pyramid', 'tetraedro', 'octaedro', 'dodecaedro'],
+            
+            // ELEMENTOS NATURALES
+            'fire': ['fuego', 'fire', 'llama', 'hoguera', 'antorcha', 'vela'],
+            'ice': ['hielo', 'ice', 'nieve', 'glaciar', 'carámbano', 'cristal de hielo'],
+            'cloud': ['nube', 'cloud', 'niebla', 'vapor', 'humo', 'bruma'],
+            'lightning': ['rayo', 'lightning', 'electricidad', 'chispa', 'relámpago'],
+            
+            // OBJETOS DECORATIVOS
+            'statue': ['estatua', 'statue', 'escultura', 'busto', 'figura', 'monumento'],
+            'painting': ['pintura', 'painting', 'cuadro', 'retrato', 'paisaje', 'mural'],
+            'mirror': ['espejo', 'mirror', 'reflejo', 'superficie reflectante'],
+            'clock': ['reloj', 'clock', 'cronómetro', 'temporizador', 'sundial'],
+            
+            // OBJETOS MISCELÁNEOS
+            'balloon': ['globo', 'balloon', 'burbuja', 'bomba', 'pompa'],
+            'umbrella': ['paraguas', 'umbrella', 'sombrilla', 'quitasol'],
+            'flag': ['bandera', 'flag', 'estandarte', 'pancarta', 'pendón'],
+            'key': ['llave', 'key', 'candado', 'cerradura', 'cerrojo'],
+            'book': ['libro', 'book', 'revista', 'periódico', 'diario', 'cuaderno'],
+            'phone': ['teléfono', 'phone', 'móvil', 'celular', 'walkie-talkie'],
+            'bag': ['bolsa', 'bag', 'mochila', 'maleta', 'cartera', 'billetera'],
+            'hat': ['sombrero', 'hat', 'gorra', 'casco', 'corona', 'tiara'],
+            'shoe': ['zapato', 'shoe', 'bota', 'sandalia', 'tenis', 'zapatilla']
+        };
+
+        for (const [type, keywords] of Object.entries(typePatterns)) {
+            if (keywords.some(keyword => lowerDesc.includes(keyword))) {
+                analysis.type = type;
+                break;
+            }
         }
         
+        // Detectar tema
+        const themePatterns = {
+            'fantasy': ['mágico', 'magical', 'fantasía', 'fantasy', 'hechizo', 'encantado', 'místico', 'sobrenatural'],
+            'sci-fi': ['futurista', 'futuristic', 'tecnológico', 'technological', 'espacial', 'space', 'robot', 'cyber'],
+            'nature': ['natural', 'nature', 'orgánico', 'organic', 'silvestre', 'wild', 'rústico', 'rustic'],
+            'medieval': ['medieval', 'antiguo', 'ancient', 'castillo', 'castle', 'caballero', 'knight', 'armadura'],
+            'modern': ['moderno', 'modern', 'contemporáneo', 'contemporary', 'urbano', 'urban', 'industrial'],
+            'steampunk': ['steampunk', 'vapor', 'steam', 'mecánico', 'mechanical', 'engranaje', 'gear'],
+            'cute': ['lindo', 'cute', 'adorable', 'adorable', 'tierno', 'sweet', 'kawaii'],
+            'scary': ['aterrador', 'scary', 'horror', 'terror', 'siniestro', 'sinister', 'oscuro', 'dark'],
+            'elegant': ['elegante', 'elegant', 'sofisticado', 'sophisticated', 'lujoso', 'luxury', 'refinado'],
+            'cartoon': ['cartoon', 'animado', 'animated', 'caricatura', 'dibujo', 'drawing', 'comic']
+        };
+
+        for (const [theme, keywords] of Object.entries(themePatterns)) {
+            if (keywords.some(keyword => lowerDesc.includes(keyword))) {
+                analysis.theme = theme;
+                break;
+            }
+        }
+
         // Detectar tamaño
         if (lowerDesc.includes('grande') || lowerDesc.includes('big') || lowerDesc.includes('enorme')) {
             analysis.size = { x: 2, y: 2, z: 2 };
@@ -974,59 +1124,181 @@ export class Game3D {
         } else if (lowerDesc.includes('gigante') || lowerDesc.includes('huge')) {
             analysis.size = { x: 3, y: 3, z: 3 };
         }
-        
-        // Detectar color
-        if (lowerDesc.includes('rojo') || lowerDesc.includes('red')) {
-            analysis.color = 0xff0000;
-        } else if (lowerDesc.includes('azul') || lowerDesc.includes('blue')) {
-            analysis.color = 0x0000ff;
-        } else if (lowerDesc.includes('verde') || lowerDesc.includes('green')) {
-            analysis.color = 0x00ff00;
-        } else if (lowerDesc.includes('amarillo') || lowerDesc.includes('yellow')) {
-            analysis.color = 0xffff00;
-        } else if (lowerDesc.includes('naranja') || lowerDesc.includes('orange')) {
-            analysis.color = 0xff8000;
-        } else if (lowerDesc.includes('morado') || lowerDesc.includes('purple')) {
-            analysis.color = 0x8000ff;
-        } else if (lowerDesc.includes('rosa') || lowerDesc.includes('pink')) {
-            analysis.color = 0xff80ff;
-        } else if (lowerDesc.includes('marrón') || lowerDesc.includes('brown')) {
-            analysis.color = 0x8b4513;
-        } else if (lowerDesc.includes('negro') || lowerDesc.includes('black')) {
-            analysis.color = 0x000000;
-        } else if (lowerDesc.includes('blanco') || lowerDesc.includes('white')) {
-            analysis.color = 0xffffff;
-        } else if (lowerDesc.includes('gris') || lowerDesc.includes('gray')) {
-            analysis.color = 0x808080;
-        } else if (lowerDesc.includes('dorado') || lowerDesc.includes('gold')) {
-            analysis.color = 0xffd700;
-        } else if (lowerDesc.includes('plateado') || lowerDesc.includes('silver')) {
-            analysis.color = 0xc0c0c0;
-        } else if (lowerDesc.includes('turquesa') || lowerDesc.includes('turquoise')) {
-            analysis.color = 0x40e0d0;
+
+        // Detectar color expandido
+        const colorPatterns = {
+            'rojo': ['rojo', 'red', 'carmesí', 'crimson', 'escarlata', 'scarlet', 'granate', 'burgundy'],
+            'azul': ['azul', 'blue', 'celeste', 'sky blue', 'navy', 'marino', 'cobalto', 'cobalt'],
+            'verde': ['verde', 'green', 'esmeralda', 'emerald', 'oliva', 'olive', 'menta', 'mint'],
+            'amarillo': ['amarillo', 'yellow', 'dorado', 'golden', 'lima', 'lime', 'crema', 'cream'],
+            'naranja': ['naranja', 'orange', 'mandarina', 'tangerine', 'melocotón', 'peach', 'coral'],
+            'morado': ['morado', 'purple', 'violeta', 'violet', 'lavanda', 'lavender', 'púrpura'],
+            'rosa': ['rosa', 'pink', 'fucsia', 'fuchsia', 'magenta', 'salmon', 'salmón'],
+            'marrón': ['marrón', 'brown', 'café', 'coffee', 'chocolate', 'caramelo', 'caramel'],
+            'negro': ['negro', 'black', 'ébano', 'ebony', 'carbón', 'charcoal'],
+            'blanco': ['blanco', 'white', 'nieve', 'snow', 'perla', 'pearl', 'hueso', 'bone'],
+            'gris': ['gris', 'gray', 'gris', 'grey', 'plata', 'silver', 'acero', 'steel'],
+            'dorado': ['dorado', 'gold', 'oro', 'bronce', 'bronze', 'latón', 'brass'],
+            'plateado': ['plateado', 'silver', 'plata', 'aluminio', 'aluminum', 'cromo', 'chrome'],
+            'cobre': ['cobre', 'copper', 'bronce', 'bronze', 'latón', 'brass'],
+            'turquesa': ['turquesa', 'turquoise', 'aguamarina', 'aquamarine', 'cian', 'cyan'],
+            'magenta': ['magenta', 'fucsia', 'fuchsia', 'púrpura', 'purple'],
+            'cyan': ['cyan', 'cian', 'turquesa', 'turquoise', 'aguamarina'],
+            'índigo': ['índigo', 'indigo', 'añil', 'azul profundo', 'deep blue'],
+            'ámbar': ['ámbar', 'amber', 'ámbar', 'miel', 'honey', 'caramelo'],
+            'jade': ['jade', 'esmeralda', 'emerald', 'verde jade', 'jade green'],
+            'rubí': ['rubí', 'ruby', 'rojo rubí', 'ruby red', 'granate'],
+            'zafiro': ['zafiro', 'sapphire', 'azul zafiro', 'sapphire blue'],
+            'diamante': ['diamante', 'diamond', 'cristal', 'crystal', 'transparente'],
+            'perla': ['perla', 'pearl', 'nacar', 'mother of pearl', 'iridiscente'],
+            'arcoíris': ['arcoíris', 'rainbow', 'multicolor', 'multicolor', 'policromático'],
+            'neón': ['neón', 'neon', 'fluorescente', 'fluorescent', 'brillante'],
+            'pastel': ['pastel', 'suave', 'soft', 'claro', 'light', 'pálido'],
+            'metálico': ['metálico', 'metallic', 'brillante', 'shiny', 'reflectante'],
+            'transparente': ['transparente', 'transparent', 'cristalino', 'crystalline', 'claro'],
+            'translúcido': ['translúcido', 'translucent', 'semi-transparente', 'semi-transparent']
+        };
+
+        for (const [color, keywords] of Object.entries(colorPatterns)) {
+            if (keywords.some(keyword => lowerDesc.includes(keyword))) {
+                analysis.color = this.getColorValue(color);
+                break;
+            }
         }
-        
-        // Detectar material
-        if (lowerDesc.includes('transparente') || lowerDesc.includes('transparent')) {
-            analysis.material = 'transparent';
-        } else if (lowerDesc.includes('brillante') || lowerDesc.includes('shiny')) {
-            analysis.material = 'shiny';
-        } else if (lowerDesc.includes('mágico') || lowerDesc.includes('magical')) {
-            analysis.material = 'magical';
+
+        // Detectar material expandido
+        const materialPatterns = {
+            'madera': ['madera', 'wood', 'pino', 'pine', 'roble', 'oak', 'cedro', 'cedar', 'caoba', 'mahogany'],
+            'piedra': ['piedra', 'stone', 'mármol', 'marble', 'granito', 'granite', 'pizarra', 'slate'],
+            'metal': ['metal', 'hierro', 'iron', 'acero', 'steel', 'aluminio', 'aluminum', 'cobre', 'copper'],
+            'cristal': ['cristal', 'glass', 'vidrio', 'cristalino', 'crystalline', 'transparente'],
+            'tela': ['tela', 'fabric', 'algodón', 'cotton', 'seda', 'silk', 'lana', 'wool', 'lino', 'linen'],
+            'cuero': ['cuero', 'leather', 'piel', 'skin', 'ante', 'suede'],
+            'plástico': ['plástico', 'plastic', 'pvc', 'poliéster', 'polyester', 'nylon', 'nylon'],
+            'goma': ['goma', 'rubber', 'caucho', 'elástico', 'elastic', 'flexible'],
+            'cerámica': ['cerámica', 'ceramic', 'porcelana', 'porcelain', 'arcilla', 'clay'],
+            'papel': ['papel', 'paper', 'cartón', 'cardboard', 'pergamino', 'parchment'],
+            'oro': ['oro', 'gold', 'dorado', 'golden', 'precioso', 'precious'],
+            'plata': ['plata', 'silver', 'plateado', 'silvered', 'metálico'],
+            'bronce': ['bronce', 'bronze', 'latón', 'brass', 'cobre', 'copper'],
+            'diamante': ['diamante', 'diamond', 'cristal', 'crystal', 'gema', 'gem'],
+            'perla': ['perla', 'pearl', 'nacar', 'mother of pearl', 'iridiscente'],
+            'mágico': ['mágico', 'magical', 'encantado', 'enchanted', 'místico', 'mystical'],
+            'etéreo': ['etéreo', 'ethereal', 'espiritual', 'spiritual', 'divino', 'divine'],
+            'cristal_mágico': ['cristal mágico', 'magical crystal', 'gema mágica', 'magical gem'],
+            'hielo_mágico': ['hielo mágico', 'magical ice', 'cristal de hielo', 'ice crystal'],
+            'fuego_mágico': ['fuego mágico', 'magical fire', 'llama eterna', 'eternal flame'],
+            'circuito': ['circuito', 'circuit', 'electrónico', 'electronic', 'digital', 'digital'],
+            'neón': ['neón', 'neon', 'fluorescente', 'fluorescent', 'led', 'led'],
+            'holograma': ['holograma', 'hologram', 'virtual', 'virtual', 'proyección'],
+            'nanotecnología': ['nanotecnología', 'nanotechnology', 'nano', 'nano', 'microscópico'],
+            'brillante': ['brillante', 'shiny', 'reflectante', 'reflective', 'pulido', 'polished'],
+            'mate': ['mate', 'matte', 'opaco', 'opaque', 'sin brillo', 'dull'],
+            'transparente': ['transparente', 'transparent', 'cristalino', 'crystalline'],
+            'translúcido': ['translúcido', 'translucent', 'semi-transparente']
+        };
+
+        for (const [material, keywords] of Object.entries(materialPatterns)) {
+            if (keywords.some(keyword => lowerDesc.includes(keyword))) {
+                analysis.material = material;
+                break;
+            }
         }
-        
+
         // Detectar efectos
-        if (lowerDesc.includes('flotante') || lowerDesc.includes('floating')) {
-            analysis.effects.push('floating');
+        const effectPatterns = {
+            'rotación': ['rotación', 'rotation', 'girando', 'spinning', 'rotativo', 'rotary', 'gira', 'turns'],
+            'flotación': ['flotante', 'floating', 'flota', 'floats', 'levitación', 'levitation', 'suspendido'],
+            'oscilación': ['oscila', 'oscillates', 'balanceo', 'swinging', 'pendular', 'pendulum'],
+            'vibración': ['vibra', 'vibrates', 'temblor', 'tremor', 'estremecimiento', 'shaking'],
+            'pulsación': ['pulsa', 'pulses', 'latido', 'heartbeat', 'ritmo', 'rhythm'],
+            'brillo': ['brillante', 'shiny', 'luminoso', 'luminous', 'resplandeciente', 'radiant'],
+            'resplandor': ['resplandece', 'glows', 'aura', 'halo', 'corona', 'corona'],
+            'parpadeo': ['parpadea', 'blinks', 'intermitente', 'flashing', 'titila', 'twinkles'],
+            'arcoíris': ['arcoíris', 'rainbow', 'multicolor', 'prismatic', 'iridiscente'],
+            'neón': ['neón', 'neon', 'fluorescente', 'fluorescent', 'led', 'bright'],
+            'partículas': ['partículas', 'particles', 'polvo', 'dust', 'cenizas', 'ashes'],
+            'chispas': ['chispas', 'sparks', 'electricidad', 'electricity', 'rayos', 'lightning'],
+            'humo': ['humo', 'smoke', 'vapor', 'steam', 'niebla', 'mist'],
+            'fuego': ['fuego', 'fire', 'llama', 'flame', 'ardiente', 'burning'],
+            'hielo': ['hielo', 'ice', 'escarcha', 'frost', 'cristal de hielo', 'ice crystal'],
+            'mágico': ['mágico', 'magical', 'encantado', 'enchanted', 'hechizado', 'spelled'],
+            'etéreo': ['etéreo', 'ethereal', 'espiritual', 'spiritual', 'divino', 'divine'],
+            'portal': ['portal', 'gateway', 'teletransporte', 'teleport', 'agujero de gusano'],
+            'transformación': ['transforma', 'transforms', 'cambio', 'change', 'metamorfosis'],
+            'invisibilidad': ['invisible', 'invisible', 'oculto', 'hidden', 'camuflado'],
+            'sonido': ['sonido', 'sound', 'música', 'music', 'melodía', 'melody', 'armonía'],
+            'eco': ['eco', 'echo', 'resonancia', 'resonance', 'reverberación'],
+            'silbido': ['silba', 'whistles', 'zumbido', 'buzzing', 'vibración', 'vibration'],
+            'antigravedad': ['antigravedad', 'antigravity', 'flota', 'floats', 'sin peso'],
+            'gravedad': ['gravedad', 'gravity', 'pesado', 'heavy', 'atracción'],
+            'lentitud': ['lento', 'slow', 'ralentizado', 'slow motion', 'congelado'],
+            'velocidad': ['rápido', 'fast', 'acelerado', 'accelerated', 'turbo'],
+            'pausa': ['pausa', 'pause', 'detenido', 'stopped', 'congelado', 'frozen'],
+            'crecimiento': ['crece', 'grows', 'expansión', 'expansion', 'agranda'],
+            'reducción': ['reduce', 'shrinks', 'contracción', 'contraction', 'encoge'],
+            'escala': ['escala', 'scale', 'tamaño', 'size', 'proporción'],
+            'cambio_color': ['cambia color', 'color change', 'cromático', 'chromatic'],
+            'fade': ['desvanece', 'fades', 'transparencia', 'transparency', 'desaparece'],
+            'gradiente': ['gradiente', 'gradient', 'degradado', 'degraded', 'mezcla'],
+            'holograma': ['holograma', 'hologram', 'virtual', 'virtual', 'proyección'],
+            'espejo': ['espejo', 'mirror', 'reflejo', 'reflection', 'reflectante'],
+            'lente': ['lente', 'lens', 'amplificación', 'magnification', 'zoom'],
+            'prisma': ['prisma', 'prism', 'refracción', 'refraction', 'dispersión'],
+            'cristal': ['cristal', 'crystal', 'transparente', 'transparent', 'claro']
+        };
+
+        for (const [effect, keywords] of Object.entries(effectPatterns)) {
+            if (keywords.some(keyword => lowerDesc.includes(keyword))) {
+                analysis.effects.push(effect);
+            }
         }
-        if (lowerDesc.includes('brillante') || lowerDesc.includes('glowing')) {
-            analysis.effects.push('glowing');
+
+        // Detectar complejidad
+        if (lowerDesc.includes('complejo') || lowerDesc.includes('complex') || lowerDesc.includes('detallado')) {
+            analysis.complexity = 'high';
+        } else if (lowerDesc.includes('simple') || lowerDesc.includes('básico')) {
+            analysis.complexity = 'low';
         }
-        if (lowerDesc.includes('rotación') || lowerDesc.includes('spinning')) {
-            analysis.effects.push('spinning');
-        }
-        
+
         return analysis;
+    }
+    
+    getColorValue(colorName) {
+        const colorMap = {
+            'rojo': 0xff0000,
+            'azul': 0x0000ff,
+            'verde': 0x00ff00,
+            'amarillo': 0xffff00,
+            'naranja': 0xff8000,
+            'morado': 0x8000ff,
+            'rosa': 0xff80ff,
+            'marrón': 0x8b4513,
+            'negro': 0x000000,
+            'blanco': 0xffffff,
+            'gris': 0x808080,
+            'dorado': 0xffd700,
+            'plateado': 0xc0c0c0,
+            'cobre': 0xb87333,
+            'turquesa': 0x40e0d0,
+            'magenta': 0xff00ff,
+            'cyan': 0x00ffff,
+            'índigo': 0x4b0082,
+            'ámbar': 0xffbf00,
+            'jade': 0x00a86b,
+            'rubí': 0xe0115f,
+            'zafiro': 0x0f52ba,
+            'diamante': 0xb9f2ff,
+            'perla': 0xf0e6e6,
+            'arcoíris': 0xff0000, // Cambiará dinámicamente
+            'neón': 0x00ff00,
+            'pastel': 0xffb6c1,
+            'metálico': 0x708090,
+            'transparente': 0xffffff,
+            'translúcido': 0xffffff
+        };
+        
+        return colorMap[colorName] || this.generateRandomColor();
     }
     
     createMeshFromData(objectData) {
@@ -1047,7 +1319,7 @@ export class Game3D {
                 geometry = new THREE.TorusGeometry(objectData.size.x / 2, objectData.size.x / 4, 16, 32);
                 break;
             case 'tree':
-                // Árbol: cilindro para tronco + esfera para copa
+                // Árbol simple: cilindro para tronco + esfera para copa
                 const treeGroup = new THREE.Group();
                 const trunkGeometry = new THREE.CylinderGeometry(0.2, 0.3, 2, 8);
                 const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
@@ -1065,7 +1337,7 @@ export class Game3D {
                 return treeGroup;
                 
             case 'house':
-                // Casa: cubo principal + techo triangular
+                // Casa simple: cubo principal + techo triangular
                 const houseGroup = new THREE.Group();
                 const houseGeometry = new THREE.BoxGeometry(2, 1.5, 2);
                 const houseMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
@@ -1083,42 +1355,8 @@ export class Game3D {
                 houseGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
                 return houseGroup;
                 
-            case 'car':
-                // Coche: cubo principal + cilindros para ruedas
-                const carGroup = new THREE.Group();
-                const carGeometry = new THREE.BoxGeometry(2, 0.5, 1);
-                const carMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
-                const car = new THREE.Mesh(carGeometry, carMaterial);
-                carGroup.add(car);
-                
-                const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
-                const wheelMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
-                
-                const wheel1 = new THREE.Mesh(wheelGeometry, wheelMaterial);
-                wheel1.position.set(-0.7, -0.4, 0.6);
-                wheel1.rotation.z = Math.PI / 2;
-                carGroup.add(wheel1);
-                
-                const wheel2 = new THREE.Mesh(wheelGeometry, wheelMaterial);
-                wheel2.position.set(0.7, -0.4, 0.6);
-                wheel2.rotation.z = Math.PI / 2;
-                carGroup.add(wheel2);
-                
-                const wheel3 = new THREE.Mesh(wheelGeometry, wheelMaterial);
-                wheel3.position.set(-0.7, -0.4, -0.6);
-                wheel3.rotation.z = Math.PI / 2;
-                carGroup.add(wheel3);
-                
-                const wheel4 = new THREE.Mesh(wheelGeometry, wheelMaterial);
-                wheel4.position.set(0.7, -0.4, -0.6);
-                wheel4.rotation.z = Math.PI / 2;
-                carGroup.add(wheel4);
-                
-                carGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
-                return carGroup;
-                
             case 'dragon':
-                // Dragón: cuerpo alargado + alas + cabeza
+                // Dragón simple: cuerpo alargado + cabeza
                 const dragonGroup = new THREE.Group();
                 const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.2, 3, 8);
                 const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x8B0000 });
@@ -1132,28 +1370,15 @@ export class Game3D {
                 head.position.set(1.5, 0, 0);
                 dragonGroup.add(head);
                 
-                const wingGeometry = new THREE.BoxGeometry(1, 0.1, 0.8);
-                const wingMaterial = new THREE.MeshLambertMaterial({ color: 0x4B0082 });
-                const wing1 = new THREE.Mesh(wingGeometry, wingMaterial);
-                wing1.position.set(0, 0.5, 0.5);
-                wing1.rotation.x = Math.PI / 4;
-                dragonGroup.add(wing1);
-                
-                const wing2 = new THREE.Mesh(wingGeometry, wingMaterial);
-                wing2.position.set(0, 0.5, -0.5);
-                wing2.rotation.x = -Math.PI / 4;
-                dragonGroup.add(wing2);
-                
                 dragonGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
                 return dragonGroup;
                 
             case 'crystal':
-                // Cristal: octaedro
                 geometry = new THREE.OctahedronGeometry(objectData.size.x / 2);
                 break;
                 
             case 'flower':
-                // Flor: esfera pequeña + cilindro delgado
+                // Flor simple: tallo + pétalos
                 const flowerGroup = new THREE.Group();
                 const stemGeometry = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
                 const stemMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
@@ -1174,8 +1399,48 @@ export class Game3D {
                 geometry = new THREE.DodecahedronGeometry(objectData.size.x / 2);
                 break;
                 
+            case 'fish':
+            case 'pez':
+            case 'shark':
+            case 'tiburon':
+            case 'dolphin':
+            case 'delfin':
+            case 'whale':
+            case 'ballena':
+                // Pez simple: cuerpo alargado + cola
+                const fishGroup = new THREE.Group();
+                const fishBodyGeometry = new THREE.CylinderGeometry(0.2, 0.1, 1.5, 8);
+                const fishBodyMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const fishBody = new THREE.Mesh(fishBodyGeometry, fishBodyMaterial);
+                fishBody.rotation.z = Math.PI / 2;
+                fishGroup.add(fishBody);
+                
+                // Cola del pez
+                const tailGeometry = new THREE.ConeGeometry(0.15, 0.4, 4);
+                const tailMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const tail = new THREE.Mesh(tailGeometry, tailMaterial);
+                tail.position.set(-0.8, 0, 0);
+                tail.rotation.z = Math.PI / 2;
+                fishGroup.add(tail);
+                
+                // Aletas laterales
+                const finGeometry = new THREE.ConeGeometry(0.1, 0.3, 4);
+                const finMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const fin1 = new THREE.Mesh(finGeometry, finMaterial);
+                fin1.position.set(0, 0.2, 0);
+                fin1.rotation.x = Math.PI / 2;
+                fishGroup.add(fin1);
+                
+                const fin2 = new THREE.Mesh(finGeometry, finMaterial);
+                fin2.position.set(0, -0.2, 0);
+                fin2.rotation.x = -Math.PI / 2;
+                fishGroup.add(fin2);
+                
+                fishGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return fishGroup;
+                
             case 'robot':
-                // Robot: cubo principal + cabeza + brazos
+                // Robot simple: cuerpo + cabeza
                 const robotGroup = new THREE.Group();
                 const robotBodyGeometry = new THREE.BoxGeometry(1, 1.5, 0.5);
                 const robotBodyMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
@@ -1189,21 +1454,11 @@ export class Game3D {
                 robotHead.position.y = 1.9;
                 robotGroup.add(robotHead);
                 
-                const armGeometry = new THREE.BoxGeometry(0.2, 0.8, 0.2);
-                const armMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
-                const arm1 = new THREE.Mesh(armGeometry, armMaterial);
-                arm1.position.set(-0.6, 0.75, 0);
-                robotGroup.add(arm1);
-                
-                const arm2 = new THREE.Mesh(armGeometry, armMaterial);
-                arm2.position.set(0.6, 0.75, 0);
-                robotGroup.add(arm2);
-                
                 robotGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
                 return robotGroup;
                 
             case 'spaceship':
-                // Nave espacial: cono + cilindro
+                // Nave simple: cilindro + cono
                 const shipGroup = new THREE.Group();
                 const shipBodyGeometry = new THREE.CylinderGeometry(0.3, 0.1, 2, 8);
                 const shipBodyMaterial = new THREE.MeshLambertMaterial({ color: 0x4169E1 });
@@ -1221,8 +1476,72 @@ export class Game3D {
                 shipGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
                 return shipGroup;
                 
+            case 'bird':
+            case 'pajaro':
+            case 'eagle':
+            case 'aguila':
+                // Ave simple: cuerpo + alas
+                const birdGroup = new THREE.Group();
+                const birdBodyGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+                const birdBodyMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const birdBody = new THREE.Mesh(birdBodyGeometry, birdBodyMaterial);
+                birdGroup.add(birdBody);
+                
+                // Alas
+                const wingGeometry = new THREE.ConeGeometry(0.2, 0.8, 4);
+                const wingMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const wing1 = new THREE.Mesh(wingGeometry, wingMaterial);
+                wing1.position.set(0, 0.3, 0);
+                wing1.rotation.z = Math.PI / 4;
+                birdGroup.add(wing1);
+                
+                const wing2 = new THREE.Mesh(wingGeometry, wingMaterial);
+                wing2.position.set(0, -0.3, 0);
+                wing2.rotation.z = -Math.PI / 4;
+                birdGroup.add(wing2);
+                
+                birdGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return birdGroup;
+                
+            case 'car':
+            case 'coche':
+            case 'auto':
+                // Auto simple: cuerpo + ruedas
+                const carGroup = new THREE.Group();
+                const carBodyGeometry = new THREE.BoxGeometry(2, 0.5, 1);
+                const carBodyMaterial = new THREE.MeshLambertMaterial({ color: objectData.color });
+                const carBody = new THREE.Mesh(carBodyGeometry, carBodyMaterial);
+                carBody.position.y = 0.25;
+                carGroup.add(carBody);
+                
+                // Ruedas
+                const wheelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.1, 8);
+                const wheelMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+                const wheel1 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel1.position.set(-0.5, 0.2, 0.6);
+                wheel1.rotation.z = Math.PI / 2;
+                carGroup.add(wheel1);
+                
+                const wheel2 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel2.position.set(0.5, 0.2, 0.6);
+                wheel2.rotation.z = Math.PI / 2;
+                carGroup.add(wheel2);
+                
+                const wheel3 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel3.position.set(-0.5, 0.2, -0.6);
+                wheel3.rotation.z = Math.PI / 2;
+                carGroup.add(wheel3);
+                
+                const wheel4 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel4.position.set(0.5, 0.2, -0.6);
+                wheel4.rotation.z = Math.PI / 2;
+                carGroup.add(wheel4);
+                
+                carGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
+                return carGroup;
+                
             case 'castle':
-                // Castillo: torre principal + torres pequeñas
+                // Castillo simple: torre principal
                 const castleGroup = new THREE.Group();
                 const mainTowerGeometry = new THREE.CylinderGeometry(1, 1, 3, 8);
                 const mainTowerMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
@@ -1230,42 +1549,18 @@ export class Game3D {
                 mainTower.position.y = 1.5;
                 castleGroup.add(mainTower);
                 
-                const smallTowerGeometry = new THREE.CylinderGeometry(0.3, 0.3, 2, 8);
-                const smallTowerMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
-                
-                const tower1 = new THREE.Mesh(smallTowerGeometry, smallTowerMaterial);
-                tower1.position.set(1.5, 1, 0);
-                castleGroup.add(tower1);
-                
-                const tower2 = new THREE.Mesh(smallTowerGeometry, smallTowerMaterial);
-                tower2.position.set(-1.5, 1, 0);
-                castleGroup.add(tower2);
-                
                 castleGroup.scale.set(objectData.size.x, objectData.size.y, objectData.size.z);
                 return castleGroup;
                 
-            case 'bridge':
-                // Puente: cubo largo
-                geometry = new THREE.BoxGeometry(3, 0.3, 1);
-                break;
-                
-            case 'tower':
-                // Torre: cilindro alto
-                geometry = new THREE.CylinderGeometry(0.5, 0.5, 4, 8);
-                break;
-                
             case 'fire':
-                // Fuego: cono invertido
                 geometry = new THREE.ConeGeometry(0.5, 1, 8);
                 break;
                 
             case 'ice':
-                // Hielo: cubo con transparencia
                 geometry = new THREE.BoxGeometry(1, 1, 1);
                 break;
                 
             case 'water':
-                // Agua: cubo plano
                 geometry = new THREE.BoxGeometry(2, 0.2, 2);
                 break;
                 
@@ -1311,6 +1606,34 @@ export class Game3D {
         return mesh;
     }
     
+    applyEffects(group, data) {
+        // Aplicar efectos especiales
+        data.effects.forEach(effect => {
+            switch (effect) {
+                case 'brillo':
+                    group.children.forEach(child => {
+                        if (child.material) {
+                            child.material.emissive = child.material.color;
+                            child.material.emissiveIntensity = 0.2;
+                        }
+                    });
+                    break;
+                case 'flotación':
+                    // El objeto flotará en la animación
+                    group.userData.floating = true;
+                    break;
+                case 'rotación':
+                    // El objeto rotará en la animación
+                    group.userData.rotating = true;
+                    break;
+                case 'oscilación':
+                    // El objeto oscilará en la animación
+                    group.userData.oscillating = true;
+                    break;
+            }
+        });
+    }
+    
     generateRandomColor() {
         const colors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
         return colors[Math.floor(Math.random() * colors.length)];
@@ -1334,52 +1657,79 @@ export class Game3D {
     }
     
     animate() {
-        requestAnimationFrame(() => this.animate());
+        if (!this.isInitialized) {
+            return;
+        }
         
-        const deltaTime = 0.016;
+        const currentTime = Date.now();
+        const deltaTime = currentTime - this.lastTime;
+        this.lastTime = currentTime;
+        
+        // Verificar que el renderer existe
+        if (!this.renderer || !this.scene || !this.camera) {
+            return;
+        }
         
         // Actualizar controlador del jugador
         if (this.playerController) {
-            this.playerController.update(deltaTime);
+            this.playerController.update(deltaTime / 1000);
         }
         
-        // Enviar actualización al servidor con throttling
-        if (this.isMultiplayer && this.networkManager && this.networkManager.isConnected) {
-            const position = this.playerController.getPosition();
-            const rotation = this.playerController.getCameraRotation();
-            
-            // Solo enviar si la posición cambió significativamente
-            if (!this.lastSentPosition || 
-                position.distanceTo(this.lastSentPosition) > 0.1 ||
-                Math.abs(rotation.y - (this.lastSentRotation?.y || 0)) > 0.1) {
+        // Animar objetos con efectos especiales
+        this.objects.forEach((object, id) => {
+            if (object.mesh && object.mesh.userData) {
+                const userData = object.mesh.userData;
                 
-                this.networkManager.sendPlayerMove(position);
-                this.networkManager.sendPlayerRotate(rotation);
+                // Efecto de flotación
+                if (userData.floating) {
+                    object.mesh.position.y += Math.sin(currentTime * 0.003) * 0.001;
+                }
                 
-                this.lastSentPosition = position.clone();
-                this.lastSentRotation = { ...rotation };
+                // Efecto de rotación
+                if (userData.rotating) {
+                    object.mesh.rotation.y += 0.01;
+                }
+                
+                // Efecto de oscilación
+                if (userData.oscillating) {
+                    object.mesh.rotation.z = Math.sin(currentTime * 0.002) * 0.1;
+                }
+                
+                // Efecto de pulsación
+                if (userData.pulsating) {
+                    const scale = 1 + Math.sin(currentTime * 0.005) * 0.1;
+                    object.mesh.scale.set(scale, scale, scale);
+                }
+                
+                // Efecto de cambio de color (arcoíris)
+                if (userData.rainbow) {
+                    const hue = (currentTime * 0.1) % 360;
+                    const color = new THREE.Color().setHSL(hue / 360, 1, 0.5);
+                    object.mesh.children.forEach(child => {
+                        if (child.material) {
+                            child.material.color = color;
+                        }
+                    });
+                }
             }
-        }
-        
-        // Actualizar objetos
-        for (const [id, object] of this.objects) {
-            if (object.update) {
-                object.update(deltaTime);
-            }
-        }
+        });
         
         // Actualizar jugadores remotos
-        for (const [id, remotePlayer] of this.remotePlayers) {
-            if (remotePlayer.update) {
-                remotePlayer.update(deltaTime);
+        this.remotePlayers.forEach(player => {
+            if (player.update) {
+                player.update(deltaTime / 1000);
             }
-        }
-        
-        // Actualizar indicador de multijugador
-        this.updateMultiplayerIndicator();
+        });
         
         // Renderizar escena
-        this.renderer.render(this.scene, this.camera);
+        try {
+            this.renderer.render(this.scene, this.camera);
+        } catch (error) {
+            console.error('❌ Error al renderizar:', error);
+        }
+        
+        // Continuar loop
+        requestAnimationFrame(() => this.animate());
     }
     
     // Métodos públicos para acceso global

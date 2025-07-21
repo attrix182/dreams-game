@@ -12,9 +12,9 @@ export class PlayerController {
         this.jumpSpeed = 8;
         this.mouseSensitivity = 0.01; // Sensibilidad más natural
         
-        // Estado del jugador - Posición inicial más visible
-        this.position = new THREE.Vector3(0, this.height, 5); // Más cerca del terreno
-        this.velocity = new THREE.Vector3();
+        // Estado del jugador - Posición inicial sobre el suelo
+        this.position = new THREE.Vector3(0, this.height, 0); // Sobre el suelo
+        this.velocity = new THREE.Vector3(0, 0, 0);
         this.onGround = true;
         this.health = 100;
         this.energy = 100;
@@ -70,11 +70,16 @@ export class PlayerController {
     }
 
     init() {
+        // Asegurar que el jugador esté sobre el suelo
+        this.position.set(0, this.height, 0);
+        this.velocity.set(0, 0, 0);
+        this.onGround = true;
+        
         // Configurar cámara inicial
         this.camera.position.copy(this.position);
         
-        // Ajustar rotación inicial para mirar hacia el suelo
-        this.cameraRotation.x = -0.5; // Mirar más hacia abajo
+        // Ajustar rotación inicial para mirar hacia adelante
+        this.cameraRotation.x = 0; // Mirar al frente
         this.cameraRotation.y = 0; // Mirar hacia adelante
         this.updateCameraRotation();
         
@@ -84,7 +89,14 @@ export class PlayerController {
         // Crear HUD
         this.createHUD();
         
+        // Marcar como inicializado ANTES de actualizar HUD
         this.isInitialized = true;
+        
+        // Actualizar HUD después de la inicialización completa
+        this.updateHUD();
+        
+        // Log de debug
+        console.log('✅ PlayerController inicializado - Posición:', this.position);
     }
 
     setupEventListeners() {
@@ -169,13 +181,10 @@ export class PlayerController {
                 }
             }
             
-            // Forzar posición de cámara para debug con F4
+            // Resetear posición del jugador con F4
             if (event.code === 'F4') {
                 event.preventDefault();
-                this.position.set(0, 2, 20); // Posición más alta y atrás
-                this.cameraRotation.x = -0.1; // Mirar ligeramente hacia abajo
-                this.cameraRotation.y = 0; // Mirar hacia adelante
-                this.updateCameraRotation();
+                this.resetPosition();
             }
         });
 
@@ -424,6 +433,13 @@ export class PlayerController {
     update(deltaTime) {
         if (!this.isInitialized) return;
 
+        // Verificar que la posición sea válida
+        if (isNaN(this.position.x) || isNaN(this.position.y) || isNaN(this.position.z)) {
+            console.warn('⚠️ Posición inválida detectada, reseteando...');
+            this.resetPosition();
+            return;
+        }
+
         // Actualizar movimiento
         this.updateMovement(deltaTime);
         
@@ -625,9 +641,17 @@ export class PlayerController {
         `;
         
         document.body.appendChild(this.interactionIndicator);
+        
+        // Actualizar HUD inicialmente
+        this.updateHUD();
     }
 
     updateHUD() {
+        // Verificar que la posición sea válida
+        const posX = isNaN(this.position.x) ? 0 : this.position.x.toFixed(1);
+        const posY = isNaN(this.position.y) ? this.height : this.position.y.toFixed(1);
+        const posZ = isNaN(this.position.z) ? 0 : this.position.z.toFixed(1);
+        
         // Contar objetos con física activa
         const physicsObjects = this.interactableObjects.filter(obj => {
             return obj.physics && obj.physics.enabled;
@@ -641,7 +665,7 @@ export class PlayerController {
                 <strong>Energía:</strong> ${this.energy}%
             </div>
             <div style="margin-bottom: 10px;">
-                <strong>Posición:</strong> X: ${this.position.x.toFixed(1)}, Y: ${this.position.y.toFixed(1)}, Z: ${this.position.z.toFixed(1)}
+                <strong>Posición:</strong> X: ${posX}, Y: ${posY}, Z: ${posZ}
             </div>
             <div style="margin-bottom: 10px;">
                 <strong>Velocidad:</strong> ${this.speed} m/s
@@ -740,10 +764,18 @@ export class PlayerController {
     }
 
     die() {
-        // Implementar lógica de muerte
-        this.health = 100;
-        this.energy = 100;
+        this.health = 0;
+        // Resetear posición al suelo
         this.setPosition(0, this.height, 0);
+        this.velocity.set(0, 0, 0);
+        this.onGround = true;
+    }
+    
+    resetPosition() {
+        this.setPosition(0, this.height, 0);
+        this.velocity.set(0, 0, 0);
+        this.onGround = true;
+        this.camera.position.copy(this.position);
     }
 
     clearAllObjects() {
