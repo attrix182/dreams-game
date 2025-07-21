@@ -123,12 +123,16 @@ export class AssetManager {
             return null; // No hay assets que coincidan
         }
 
-        // Usar asset específico si se proporciona, sino seleccionar aleatoriamente
+        // Usar asset específico si se proporciona, sino usar selección determinista
         let selectedAsset;
         if (specificAsset && matchingAssets.includes(specificAsset)) {
             selectedAsset = specificAsset;
+            console.log(`🎯 Usando asset específico: ${selectedAsset}`);
         } else {
-            selectedAsset = matchingAssets[Math.floor(Math.random() * matchingAssets.length)];
+            // Selección determinista basada en el hash de la descripción
+            const hash = this.hashString(description);
+            selectedAsset = matchingAssets[hash % matchingAssets.length];
+            console.log(`🎯 Selección determinista para "${description}": hash=${hash}, asset=${selectedAsset} (${matchingAssets.length} opciones)`);
         }
         
         try {
@@ -216,6 +220,20 @@ export class AssetManager {
             'Banana.glb', 'Bacon.glb', 'Avocado.glb', 'Apple Green.glb'
         ];
         return foodAssets.includes(assetName);
+    }
+    
+    // Método para generar hash determinista de una cadena
+    hashString(str) {
+        let hash = 0;
+        if (str.length === 0) return hash;
+        
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convertir a entero de 32 bits
+        }
+        
+        return Math.abs(hash);
     }
 
     clearCache() {

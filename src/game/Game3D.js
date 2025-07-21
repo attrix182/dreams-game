@@ -1317,13 +1317,19 @@ export class Game3D {
         
         // Aplicar modificadores del comando parseado
         
-        // 1. Aplicar color si se especificó
+        // 1. Aplicar variante específica si se especificó
+        if (parsedCommand.variant) {
+            analysis.specificAsset = parsedCommand.variant.asset;
+            console.log(`🎯 Aplicando variante específica: ${parsedCommand.variant.name} -> ${parsedCommand.variant.asset}`);
+        }
+        
+        // 2. Aplicar color si se especificó
         if (parsedCommand.color) {
             analysis.color = parsedCommand.color.value;
             console.log(`🎨 Aplicando color: ${parsedCommand.color.name} (${parsedCommand.color.value.toString(16)})`);
         }
         
-        // 2. Aplicar tamaño si se especificó
+        // 3. Aplicar tamaño si se especificó
         if (parsedCommand.size && parsedCommand.size.name !== 'normal') {
             const sizeMultiplier = parsedCommand.size.value;
             analysis.size.x *= sizeMultiplier;
@@ -1332,7 +1338,7 @@ export class Game3D {
             console.log(`📏 Aplicando tamaño: ${parsedCommand.size.name} (x${sizeMultiplier})`);
         }
         
-        // 3. Aplicar material si se especificó
+        // 4. Aplicar material si se especificó
         if (parsedCommand.material && parsedCommand.material.type !== 'basic') {
             analysis.material = parsedCommand.material.type;
             analysis.effects = analysis.effects || [];
@@ -1352,7 +1358,7 @@ export class Game3D {
             console.log(`✨ Aplicando material: ${parsedCommand.material.type}`);
         }
         
-        // 4. Actualizar descripción para incluir modificadores
+        // 5. Actualizar descripción para incluir modificadores
         analysis.description = this.commandParser.generateDescription(parsedCommand);
         
         console.log('🔧 Objeto con modificadores aplicados:', analysis);

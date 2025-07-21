@@ -145,9 +145,13 @@ export class CommandParser {
             material
         });
 
+        // Extraer variante específica
+        const variant = this.extractVariant(lowerCommand);
+        
         return {
             action,
             object,
+            variant,
             color,
             size,
             material,
@@ -235,6 +239,59 @@ export class CommandParser {
             name: 'normal',
             value: 1.0
         };
+    }
+
+    /**
+     * Extrae la variante específica del comando
+     */
+    extractVariant(command) {
+        // Patrones para variantes específicas
+        const variantPatterns = {
+            // Escritorios
+            'escritorio pequeño': 'Desk.glb',
+            'desk pequeño': 'Desk.glb',
+            'escritorio mediano': 'Desk-V86Go2rlnq.glb',
+            'desk mediano': 'Desk-V86Go2rlnq.glb',
+            'escritorio grande': 'Desk-ISpMh81QGq.glb',
+            'desk grande': 'Desk-ISpMh81QGq.glb',
+            'escritorio moderno': 'Desk-EtJlOllzbf.glb',
+            'desk moderno': 'Desk-EtJlOllzbf.glb',
+            'escritorio clásico': 'Desk-7ban171PzCS.glb',
+            'desk clásico': 'Desk-7ban171PzCS.glb',
+            'escritorio de pie': 'Standing Desk.glb',
+            'desk de pie': 'Standing Desk.glb',
+            
+            // Sofás
+            'sofá grande': 'Couch | Wide.glb',
+            'couch grande': 'Couch | Wide.glb',
+            'sofá mediano': 'Couch Medium.glb',
+            'couch mediano': 'Couch Medium.glb',
+            'sofá pequeño': 'Couch Small.glb',
+            'couch pequeño': 'Couch Small.glb',
+            'sofá moderno': 'Couch Small-ZOPP3KzNIk.glb',
+            'couch moderno': 'Couch Small-ZOPP3KzNIk.glb',
+            
+            // Sillas
+            'silla de oficina': 'Office Chair.glb',
+            'silla básica': 'Chair.glb',
+            'silla moderna': 'Chair-1MFMOaz3zqe.glb',
+            
+            // Mesas
+            'mesa redonda': 'Table Large Circular.glb',
+            'mesa de ping pong': 'Table tennis table.glb',
+            'mesa básica': 'Table.glb'
+        };
+
+        for (const [variantName, assetName] of Object.entries(variantPatterns)) {
+            if (command.includes(variantName)) {
+                return {
+                    name: variantName,
+                    asset: assetName
+                };
+            }
+        }
+
+        return null;
     }
 
     /**
