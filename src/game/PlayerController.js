@@ -102,8 +102,12 @@ export class PlayerController {
     setupEventListeners() {
         // Eventos de teclado
         document.addEventListener('keydown', (event) => {
+            // Verificar si hay un modal abierto
+            const modalOpen = document.getElementById('itemCatalogModal') && 
+                             document.getElementById('itemCatalogModal').style.display === 'block';
+            
             // No procesar teclas si hay un modal abierto o el chat tiene foco
-            if (this.isModalOpen || this.isChatFocused()) {
+            if (modalOpen || this.isModalOpen || this.isChatFocused()) {
                 return;
             }
             
@@ -199,7 +203,10 @@ export class PlayerController {
 
         // Eventos del mouse (solo cuando la ventana tiene foco)
         document.addEventListener('mousemove', (event) => {
-            if (this.isPointerLocked && !this.isModalOpen && !this.isChatFocused() && document.hasFocus()) {
+            const modalOpen = document.getElementById('itemCatalogModal') && 
+                             document.getElementById('itemCatalogModal').style.display === 'block';
+            
+            if (this.isPointerLocked && !this.isModalOpen && !modalOpen && !this.isChatFocused() && document.hasFocus()) {
                 // Capturar movimiento del mouse
                 this.mouseMovement.x = event.movementX || 0;
                 this.mouseMovement.y = event.movementY || 0;
@@ -213,7 +220,10 @@ export class PlayerController {
         
         // Eventos de click y scroll para manipulación de objetos
         document.addEventListener('mousedown', (event) => {
-            if (this.isPointerLocked && !this.isModalOpen && !this.isChatFocused() && event.button === 0 && document.hasFocus()) {
+            const modalOpen = document.getElementById('itemCatalogModal') && 
+                             document.getElementById('itemCatalogModal').style.display === 'block';
+            
+            if (this.isPointerLocked && !this.isModalOpen && !modalOpen && !this.isChatFocused() && event.button === 0 && document.hasFocus()) {
                 this.startObjectDrag();
             }
         });
@@ -225,7 +235,10 @@ export class PlayerController {
         });
         
         document.addEventListener('wheel', (event) => {
-            if (this.isPointerLocked && !this.isModalOpen && !this.isChatFocused() && this.objectManipulation.isDragging && document.hasFocus()) {
+            const modalOpen = document.getElementById('itemCatalogModal') && 
+                             document.getElementById('itemCatalogModal').style.display === 'block';
+            
+            if (this.isPointerLocked && !this.isModalOpen && !modalOpen && !this.isChatFocused() && this.objectManipulation.isDragging && document.hasFocus()) {
                 this.handleObjectScroll(event);
             }
         });
@@ -321,6 +334,12 @@ export class PlayerController {
     isChatFocused() {
         const chatInput = document.getElementById('chatInput');
         return chatInput && document.activeElement === chatInput;
+    }
+    
+    onModalClosed() {
+        // Cuando se cierra un modal, no restaurar automáticamente el puntero
+        // El usuario puede hacer clic para restaurarlo si lo desea
+        this.isModalOpen = false;
     }
 
     // Sistema de manipulación de objetos (Portal style)

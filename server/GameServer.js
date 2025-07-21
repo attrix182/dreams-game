@@ -156,6 +156,7 @@ export class GameServer {
             creatorId: socket.id,
             type: data.type,
             name: data.name,
+            specificAsset: data.specificAsset, // Agregar asset específico
             position: data.position || { x: 0, y: 0, z: 0 },
             rotation: data.rotation || { x: 0, y: 0, z: 0 },
             scale: data.scale || { x: 1, y: 1, z: 1 },

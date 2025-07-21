@@ -4,6 +4,9 @@ import { Object3D } from './Object3D.js';
 import { NetworkManager } from '../network/NetworkManager.js';
 import { RemotePlayer } from './RemotePlayer.js';
 import { ChatSystem } from '../ui/ChatSystem.js';
+import { AssetManager } from './AssetManager.js';
+import { ItemCatalog } from '../ui/ItemCatalog.js';
+import { CommandParser } from './CommandParser.js';
 
 export class Game3D {
     constructor(container) {
@@ -30,6 +33,9 @@ export class Game3D {
         // Controladores
         this.playerController = null;
         this.networkManager = null;
+        this.assetManager = new AssetManager();
+        this.itemCatalog = null;
+        this.commandParser = new CommandParser();
         
         // Colecciones con límites
         this.objects = new Map();
@@ -138,6 +144,12 @@ export class Game3D {
             
             // Configurar multijugador
             this.setupMultiplayer();
+            
+            // Precargar assets comunes en segundo plano
+            this.assetManager.preloadCommonAssets();
+            
+            // Inicializar catálogo de items
+            this.itemCatalog = new ItemCatalog(this);
             
             // Marcar como inicializado
             this.isInitialized = true;
@@ -472,11 +484,13 @@ export class Game3D {
                 },
                 color: objectData.color || this.generateRandomColor(),
                 material: objectData.material || 'basic',
-                effects: []
+                effects: [],
+                description: objectData.name, // Agregar descripción para assets
+                specificAsset: objectData.specificAsset // Agregar asset específico
             };
             
             // Crear el mesh usando el mismo sistema que generateObject
-            const mesh = this.createMeshFromData(analysis);
+            const mesh = await this.createMeshFromData(analysis);
             
             // Establecer posición si viene del servidor
             if (objectData.position) {
@@ -498,11 +512,14 @@ export class Game3D {
             
             // Establecer escala si viene del servidor
             if (objectData.scale) {
-                mesh.scale.set(
-                    objectData.scale.x,
-                    objectData.scale.y,
-                    objectData.scale.z
-                );
+                const normalizedScale = this.normalizeScale(objectData.scale);
+                
+                console.log(`Aplicando escala a objeto ${objectData.name}:`, {
+                    original: objectData.scale,
+                    normalized: normalizedScale
+                });
+                
+                mesh.scale.set(normalizedScale.x, normalizedScale.y, normalizedScale.z);
             }
             
             // Agregar identificador
@@ -860,6 +877,15 @@ export class Game3D {
                 return;
             }
             
+            // Parsear el comando usando el CommandParser
+            const parsedCommand = this.commandParser.parseCommand(description);
+            
+            // Si no se encontró un objeto válido, mostrar error
+            if (!parsedCommand.object || parsedCommand.object.trim() === '') {
+                this.showChatMessage('❌ No se pudo identificar el objeto a crear');
+                return;
+            }
+            
             // Obtener posición del jugador
             const playerPosition = this.playerController.getPosition();
             const cameraDirection = new THREE.Vector3();
@@ -869,11 +895,18 @@ export class Game3D {
             const spawnPosition = playerPosition.clone().add(cameraDirection.multiplyScalar(3));
             spawnPosition.y = 1; // Elevar un poco del suelo
             
-            // Analizar la descripción para determinar el tipo de objeto
-            const objectData = this.analyzeAndCreateObject(description, spawnPosition);
+            // Usar el objeto parseado y aplicar modificadores
+            const finalDescription = this.commandParser.generateDescription(parsedCommand);
+            const objectData = this.analyzeAndCreateObjectWithModifiers(parsedCommand, spawnPosition);
             
             // Crear el objeto en la escena
-            const mesh = this.createMeshFromData(objectData);
+            const mesh = await this.createMeshFromData(objectData);
+            
+            // Capturar el asset específico usado si es un asset 3D
+            let specificAsset = null;
+            if (mesh.userData && mesh.userData.assetName) {
+                specificAsset = mesh.userData.assetName;
+            }
             mesh.position.copy(spawnPosition);
             
             // Agregar identificador
@@ -908,9 +941,17 @@ export class Game3D {
             
             // Enviar al servidor si estamos en multijugador
             if (this.isMultiplayer && this.networkManager && this.networkManager.isConnected) {
+                const normalizedScale = this.normalizeScale(mesh.scale);
+                
+                console.log(`Enviando objeto al servidor: ${description}`, {
+                    originalScale: mesh.scale,
+                    normalizedScale: normalizedScale
+                });
+                
                 this.networkManager.sendObjectCreate({
                     type: objectData.type,
                     name: description,
+                    specificAsset: specificAsset, // Incluir el asset específico
                     position: {
                         x: mesh.position.x,
                         y: mesh.position.y,
@@ -921,18 +962,14 @@ export class Game3D {
                         y: mesh.rotation.y,
                         z: mesh.rotation.z
                     },
-                    scale: {
-                        x: mesh.scale.x,
-                        y: mesh.scale.y,
-                        z: mesh.scale.z
-                    },
+                    scale: normalizedScale,
                     material: objectData.material,
                     color: objectData.color,
                     physics: true
                 });
             }
             
-            this.showChatMessage(`🎨 Creado: ${description}`);
+            this.showChatMessage(`🎨 Creado: ${finalDescription}`);
             
         } catch (error) {
             console.error('❌ Error al generar objeto:', error);
@@ -984,7 +1021,8 @@ export class Game3D {
             effects: [],
             complexity: 'medium',
             texture: null,
-            animation: null
+            animation: null,
+            description: description // Agregar la descripción original
         };
         
         // Sistema expandido de detección de tipos (50+ categorías)
@@ -1264,6 +1302,64 @@ export class Game3D {
         return analysis;
     }
     
+    /**
+     * Analiza y crea un objeto con modificadores del CommandParser
+     * @param {object} parsedCommand - Comando parseado por CommandParser
+     * @param {THREE.Vector3} position - Posición donde crear el objeto
+     * @returns {object} - Datos del objeto con modificadores aplicados
+     */
+    analyzeAndCreateObjectWithModifiers(parsedCommand, position) {
+        // Usar el objeto base del comando parseado
+        const baseDescription = parsedCommand.object;
+        
+        // Crear análisis base
+        const analysis = this.analyzeAndCreateObject(baseDescription, position);
+        
+        // Aplicar modificadores del comando parseado
+        
+        // 1. Aplicar color si se especificó
+        if (parsedCommand.color) {
+            analysis.color = parsedCommand.color.value;
+            console.log(`🎨 Aplicando color: ${parsedCommand.color.name} (${parsedCommand.color.value.toString(16)})`);
+        }
+        
+        // 2. Aplicar tamaño si se especificó
+        if (parsedCommand.size && parsedCommand.size.name !== 'normal') {
+            const sizeMultiplier = parsedCommand.size.value;
+            analysis.size.x *= sizeMultiplier;
+            analysis.size.y *= sizeMultiplier;
+            analysis.size.z *= sizeMultiplier;
+            console.log(`📏 Aplicando tamaño: ${parsedCommand.size.name} (x${sizeMultiplier})`);
+        }
+        
+        // 3. Aplicar material si se especificó
+        if (parsedCommand.material && parsedCommand.material.type !== 'basic') {
+            analysis.material = parsedCommand.material.type;
+            analysis.effects = analysis.effects || [];
+            
+            // Agregar efectos especiales según el material
+            if (parsedCommand.material.emissive) {
+                analysis.effects.push('emissive');
+            }
+            if (parsedCommand.material.transparent) {
+                analysis.effects.push('transparent');
+                analysis.opacity = parsedCommand.material.opacity || 0.5;
+            }
+            if (parsedCommand.material.metalness) {
+                analysis.effects.push('metallic');
+            }
+            
+            console.log(`✨ Aplicando material: ${parsedCommand.material.type}`);
+        }
+        
+        // 4. Actualizar descripción para incluir modificadores
+        analysis.description = this.commandParser.generateDescription(parsedCommand);
+        
+        console.log('🔧 Objeto con modificadores aplicados:', analysis);
+        
+        return analysis;
+    }
+    
     getColorValue(colorName) {
         const colorMap = {
             'rojo': 0xff0000,
@@ -1301,7 +1397,40 @@ export class Game3D {
         return colorMap[colorName] || this.generateRandomColor();
     }
     
-    createMeshFromData(objectData) {
+    async createMeshFromData(objectData) {
+        // Primero intentar usar assets 3D si tenemos una descripción
+        if (objectData.description && this.assetManager) {
+            try {
+                const assetObject = await this.assetManager.createObjectFromAssets(
+                    objectData.description, 
+                    Math.max(objectData.size.x, objectData.size.y, objectData.size.z),
+                    objectData.specificAsset // Pasar el asset específico si está disponible
+                );
+                
+                if (assetObject) {
+                    // Aplicar color si se especifica
+                    if (objectData.color) {
+                        assetObject.traverse((child) => {
+                            if (child.isMesh && child.material) {
+                                if (Array.isArray(child.material)) {
+                                    child.material.forEach(mat => {
+                                        if (mat.color) mat.color.setHex(objectData.color);
+                                    });
+                                } else {
+                                    child.material.color.setHex(objectData.color);
+                                }
+                            }
+                        });
+                    }
+                    
+                    return assetObject;
+                }
+            } catch (error) {
+                console.warn('Error al cargar asset, usando geometría básica:', error);
+            }
+        }
+        
+        // Si no hay assets disponibles, usar geometrías básicas
         let geometry;
         
         // Crear geometría basada en el tipo
@@ -1744,6 +1873,30 @@ export class Game3D {
     getChatSystem() {
         return this.chatSystem;
     }
+
+    getItemCatalog() {
+        return this.itemCatalog;
+    }
+    
+    onModalClosed() {
+        // Restaurar el estado del juego cuando se cierra el modal
+        if (this.playerController) {
+            // El PlayerController manejará la restauración del puntero si es necesario
+            this.playerController.onModalClosed();
+        }
+    }
+    
+    // Método para normalizar escalas extremadamente pequeñas o grandes
+    normalizeScale(scale) {
+        const minScale = 0.1;
+        const maxScale = 5.0;
+        
+        return {
+            x: Math.max(minScale, Math.min(maxScale, Math.abs(scale.x) < 0.01 ? 1 : scale.x)),
+            y: Math.max(minScale, Math.min(maxScale, Math.abs(scale.y) < 0.01 ? 1 : scale.y)),
+            z: Math.max(minScale, Math.min(maxScale, Math.abs(scale.z) < 0.01 ? 1 : scale.z))
+        };
+    }
     
     isMultiplayerEnabled() {
         return this.isMultiplayer;
@@ -1934,6 +2087,23 @@ export class Game3D {
             font-size: 14px;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
         `;
+
+        // Agregar indicador del catálogo
+        this.catalogIndicator = document.createElement('div');
+        this.catalogIndicator.id = 'catalogIndicator';
+        this.catalogIndicator.style.cssText = `
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            border-left: 3px solid #667eea;
+        `;
+        this.catalogIndicator.innerHTML = `
+            <div style="color: #667eea; font-weight: bold;">📋 Catálogo de Items</div>
+            <div>Presiona <strong>I</strong> para abrir</div>
+        `;
+        this.hud.appendChild(this.catalogIndicator);
         
         // Agregar indicador de multijugador
         this.multiplayerIndicator = document.createElement('div');
@@ -1994,16 +2164,20 @@ export class Game3D {
             if (this.isMultiplayer && this.networkManager && this.networkManager.isPlayerConnected()) {
                 const playerCount = this.networkManager.getPlayerCount();
                 const objectCount = this.networkManager.getObjectCount();
+                const assetStats = this.assetManager.getCacheStats();
                 
                 indicator.innerHTML = `
                     <div style="color: #00ff00;">🌐 Multijugador Activo</div>
                     <div>👥 Jugadores: ${playerCount}</div>
                     <div>🎨 Objetos: ${objectCount}</div>
+                    <div>📦 Assets: ${assetStats.cached}/${assetStats.total}</div>
                 `;
             } else {
+                const assetStats = this.assetManager.getCacheStats();
                 indicator.innerHTML = `
                     <div style="color: #ff0000;">🔌 Modo Local</div>
                     <div>Servidor no disponible</div>
+                    <div>📦 Assets: ${assetStats.cached}/${assetStats.total}</div>
                 `;
             }
         }
